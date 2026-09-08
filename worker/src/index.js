@@ -10,6 +10,10 @@
  * a volunteer-funded network via an anonymous endpoint, which is exactly the
  * thing worth not building.
  *
+ * Access is gated by HTTP Basic auth against the PROXY_USER / PROXY_PASS
+ * secrets. If those aren't set the Worker denies everything — a misconfigured
+ * deploy should be useless, not open.
+ *
  * API:  GET /trace/YYYY-MM-DD/{icao24 hex}
  */
 
@@ -22,6 +26,9 @@ const ROUTE = /^\/trace\/(\d{4})-(\d{2})-(\d{2})\/([0-9a-fA-F]{6})$/;
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
+  // The app sends Basic auth as an explicit header rather than via credentials
+  // mode, so a wildcard origin stays legal — but the preflight has to permit it.
+  "Access-Control-Allow-Headers": "Authorization",
   "Access-Control-Max-Age": "86400",
 };
 
@@ -31,10 +38,52 @@ const json = (obj, status = 200, extra = {}) =>
     headers: { "Content-Type": "application/json", ...CORS, ...extra },
   });
 
+/** Constant-time compare via fixed-length digests, so length differences don't leak. */
+async function secretsMatch(a, b) {
+  const digest = (s) => crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  const [da, db] = await Promise.all([digest(a), digest(b)]);
+  return crypto.subtle.timingSafeEqual(new Uint8Array(da), new Uint8Array(db));
+}
+
+async function authorize(request, env) {
+  if (!env.PROXY_USER || !env.PROXY_PASS) {
+    return json({ error: "auth_not_configured", detail: "Set PROXY_USER and PROXY_PASS secrets." }, 503);
+  }
+  const header = request.headers.get("Authorization") || "";
+  const [scheme, encoded] = header.split(" ");
+  const unauthorized = json({ error: "unauthorized" }, 401, {
+    // Not a browser-native login prompt (this is fetched by script), but correct
+    // to send and useful for curl.
+    "WWW-Authenticate": 'Basic realm="adsb-investigator", charset="UTF-8"',
+  });
+  if (scheme !== "Basic" || !encoded) return unauthorized;
+
+  let decoded;
+  try {
+    decoded = atob(encoded);
+  } catch {
+    return unauthorized;
+  }
+  const sep = decoded.indexOf(":");
+  if (sep < 0) return unauthorized;
+
+  const [okUser, okPass] = await Promise.all([
+    secretsMatch(decoded.slice(0, sep), env.PROXY_USER),
+    secretsMatch(decoded.slice(sep + 1), env.PROXY_PASS),
+  ]);
+  return okUser && okPass ? null : unauthorized;
+}
+
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
+    // Preflight must not require auth — browsers never send credentials on it.
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
+
+    // Before any upstream work or cache read, so unauthenticated requests
+    // can neither reach adsb.lol nor read anything back.
+    const denied = await authorize(request, env);
+    if (denied) return denied;
 
     const url = new URL(request.url);
     const match = ROUTE.exec(url.pathname);

@@ -1,27 +1,71 @@
-name: Nightly trace fetch
+name: Nightly archive
+
+# adsb.lol keeps only a rolling ~31-day window of the current year, so a day
+# that isn't captured here becomes expensive to recover later (it survives only
+# in multi-GB daily tarballs). This job is the archive.
 
 on:
   schedule:
-    - cron: '0 6 * * *'  # 06:00 UTC, after adsb.lol's prod release usually lands
-  workflow_dispatch: {}
+    - cron: '0 6 * * *'  # 06:00 UTC, after the previous day is complete upstream
+  workflow_dispatch:
+    inputs:
+      dates:
+        description: 'Space-separated YYYY-MM-DD dates to (re)build. Blank = yesterday.'
+        required: false
+        default: ''
+      skip_index:
+        description: 'Skip the full-day index (traces only) — much faster'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
 
+concurrency:
+  group: nightly-archive
+  cancel-in-progress: false
+
 jobs:
-  fetch:
+  archive:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Resolve target dates
+        id: dates
+        run: |
+          if [ -n "${{ inputs.dates }}" ]; then
+            echo "list=${{ inputs.dates }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "list=$(date -u -d yesterday +%F)" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Full-fidelity traces for the aircraft we care about, so they survive
+      # past the upstream retention window.
       - name: Fetch watchlisted traces
-        run: python3 scripts/fetch_traces.py
-      - name: Commit and push data
+        run: python3 scripts/fetch_traces.py ${{ steps.dates.outputs.list }}
+
+      # Summary of every aircraft seen that day — the part a browser can't
+      # derive for itself, and what makes area discovery possible.
+      - name: Build daily index
+        if: ${{ inputs.skip_index != true }}
+        run: python3 scripts/build_index.py ${{ steps.dates.outputs.list }}
+
+      - name: Commit
         run: |
           git config user.name "adsb-investigator-bot"
           git config user.email "actions@users.noreply.github.com"
           git add data/
-          git diff --cached --quiet || git commit -m "data: nightly trace fetch $(date -u +%F)"
-          git push
+          if git diff --cached --quiet; then
+            echo "nothing new to commit"
+          else
+            git commit -m "data: archive ${{ steps.dates.outputs.list }}"
+            # Another run may have landed while this one was scanning.
+            git pull --rebase --autostash origin main
+            git push
+          fi

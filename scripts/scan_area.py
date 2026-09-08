@@ -57,8 +57,18 @@ def parse_records(raw):
         hex_flagged, lat_i, lon_i, alt_i, gs_i = struct.unpack_from(RECORD_FMT, raw, off)
         lat, lon = lat_i / 1e6, lon_i / 1e6
         if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-            continue  # timestamp/marker record, not a position (HANDOFF.md §3)
-        yield hex_flagged & 0xFFFFFF, lat, lon, alt_i * 25, gs_i / 10
+            continue  # timestamp/marker record, not a position
+        # Null island: a failed fix, not a real position over the Atlantic.
+        if lat == 0 and lon == 0:
+            continue
+        icao = hex_flagged & 0xFFFFFF
+        # ICAO addresses below 0x000100 aren't validly assigned. In practice
+        # they're placeholders, and because they repeat across unrelated
+        # receivers they otherwise aggregate into one impossible globe-spanning
+        # "aircraft" in the daily index.
+        if icao < 0x000100:
+            continue
+        yield icao, lat, lon, alt_i * 25, gs_i / 10
 
 
 def scan(day: date, bbox, hours):

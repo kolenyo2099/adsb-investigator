@@ -53,6 +53,20 @@
     </label>
     <button id="lookupBtn" class="action">Look up</button>
 
+    <details id="authWrap">
+      <summary>Access credentials</summary>
+      <label class="fld">Username
+        <input id="authUser" type="text" autocomplete="username">
+      </label>
+      <label class="fld">Password
+        <input id="authPass" type="password" autocomplete="current-password">
+      </label>
+      <label style="font-size:12px;opacity:.8"><input type="checkbox" id="authRemember" checked> Remember on this device</label>
+      <p class="note" style="margin-top:8px">Shared credentials for the lookup
+      service. Stored in this browser only — treat them as a shared team
+      password, not a personal login.</p>
+    </details>
+
     <details id="archiveWrap">
       <summary>or browse archived aircraft</summary>
       <select id="aircraftSelect"><option>Loading index…</option></select>
@@ -232,16 +246,48 @@ function shiftDate(iso, days) {
   return d.toISOString().slice(0, 10);
 }
 
+const authUser = document.getElementById('authUser');
+const authPass = document.getElementById('authPass');
+const authRemember = document.getElementById('authRemember');
+const authWrap = document.getElementById('authWrap');
+
+try {
+  const saved = JSON.parse(localStorage.getItem('adsb_auth') || 'null');
+  if (saved) { authUser.value = saved.u || ''; authPass.value = saved.p || ''; }
+} catch { /* private mode or blocked storage — just start empty */ }
+
+function authHeader() {
+  const u = authUser.value.trim(), p = authPass.value;
+  if (!u || !p) return null;
+  try {
+    if (authRemember.checked) localStorage.setItem('adsb_auth', JSON.stringify({ u, p }));
+    else localStorage.removeItem('adsb_auth');
+  } catch { /* storage unavailable; credentials still work for this session */ }
+  return 'Basic ' + btoa(`${u}:${p}`);
+}
+
 async function liveLookup(rawInput, day) {
   if (!PROXY) throw new Error('Live lookup is not configured for this deployment. Use the archived aircraft list below.');
+  const auth = authHeader();
+  if (!auth) { authWrap.open = true; throw new Error('Enter the access credentials below to look up aircraft.'); }
   const hex = await resolveHex(rawInput);
 
   // Traces are per-UTC-day, so a gap spanning midnight is invisible in a single
   // day's file. Pull the two preceding days too and stitch them into one series.
   const days = [shiftDate(day, -2), shiftDate(day, -1), day];
-  const docs = await Promise.all(days.map(d =>
-    fetch(`${PROXY}/trace/${d}/${hex}`).then(r => r.ok ? r.json() : null).catch(() => null)
+  const responses = await Promise.all(days.map(d =>
+    fetch(`${PROXY}/trace/${d}/${hex}`, { headers: { Authorization: auth } }).catch(() => null)
   ));
+
+  if (responses.some(r => r && r.status === 401)) {
+    authWrap.open = true;
+    throw new Error('Those credentials were rejected. Check the username and password below.');
+  }
+  if (responses.some(r => r && r.status === 503)) {
+    throw new Error('The lookup service has no credentials configured yet. Ask the maintainer to set them.');
+  }
+
+  const docs = await Promise.all(responses.map(r => (r && r.ok) ? r.json().catch(() => null) : null));
   if (docs.every(d => d === null)) {
     throw new Error(`No ADS-B data for ${rawInput.toUpperCase()} (${hex}) on ${day} or the two days before it. The aircraft may not have flown, or flew outside receiver coverage.`);
   }

@@ -3,3 +3,6 @@ __pycache__/
 .DS_Store
 node_modules/
 .wrangler/
+# Local Worker secrets — never commit
+.dev.vars
+.dev.vars.*
