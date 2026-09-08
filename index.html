@@ -22,6 +22,10 @@
   .tabs button.active { background: #2266dd; color: #fff; }
   [hidden] { display: none !important; }
   .scan-row { font-size: 12px; padding: 2px 0; }
+  #pyCode { width: 100%; height: 140px; box-sizing: border-box; font-family: ui-monospace, monospace; font-size: 12px; }
+  #pyOut { white-space: pre-wrap; background: #0002; border-radius: 6px; padding: 8px; font-family: ui-monospace, monospace; font-size: 12px; max-height: 220px; overflow: auto; }
+  button.action { width: 100%; padding: 8px; margin: 6px 0; border: none; border-radius: 6px; background: #2266dd; color: #fff; cursor: pointer; }
+  button.action:disabled { opacity: .5; cursor: default; }
 </style>
 </head>
 <body>
@@ -30,6 +34,7 @@
   <div class="tabs">
     <button id="tabTrace" class="active">Aircraft trace</button>
     <button id="tabArea">Area scan</button>
+    <button id="tabPy">Analyze</button>
   </div>
 
   <div id="paneTrace">
@@ -38,7 +43,7 @@
     <div id="status"></div>
     <div id="gaps"></div>
     <p class="note">Gaps are the finding, not an inferred destination. Envelope
-    radii assume 850 km/h cruise and 0–2h ground stops — see HANDOFF.md §7.</p>
+    radii assume 850 km/h cruise and 0–2h ground stops.</p>
   </div>
 
   <div id="paneArea" hidden>
@@ -48,6 +53,16 @@
     <p class="note">Scans are precomputed offline (scripts/scan_area.py) —
     the browser can't reach adsb.lol's heatmap files directly (no CORS).
     Red = US-registered; grey = registration country not yet resolved.</p>
+  </div>
+
+  <div id="paneAnalyze" hidden>
+    <p class="note" style="margin-top:0">Loads the trace or scan you last viewed
+    into a pandas DataFrame called <code>df</code>, in-browser (Pyodide,
+    ~10&nbsp;MB, loaded on demand). Nothing leaves your machine.</p>
+    <button id="pyLoadBtn" class="action">Load Python (Pyodide)</button>
+    <textarea id="pyCode" hidden>df.describe()</textarea>
+    <button id="pyRunBtn" class="action" hidden>Run</button>
+    <pre id="pyOut"></pre>
   </div>
 </div>
 <div id="map"></div>
@@ -61,6 +76,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 let trackLayer = L.layerGroup().addTo(map);
 let index = {};
+let lastLoaded = null; // { kind: 'trace'|'scan', records: [...] }
 
 const aircraftSelect = document.getElementById('aircraftSelect');
 const dateSelect = document.getElementById('dateSelect');
@@ -102,6 +118,7 @@ dateSelect.addEventListener('change', async () => {
     L.circleMarker(pts[pts.length - 1], { color: 'black', radius: 6 }).bindTooltip('end').addTo(trackLayer);
   }
   status.textContent = `${doc.reg} — ${day} — ${pts.length} points, ${(doc.gaps || []).length} coverage gap(s)`;
+  lastLoaded = { kind: 'trace', records: (doc.trace || []).map(p => ({ t: p[0], lat: p[1], lon: p[2], alt: p[3], gs: p[4] })) };
 
   gapsEl.innerHTML = (doc.gaps || []).map(g => {
     const mins = Math.round(g.duration_s / 60);
@@ -125,22 +142,26 @@ dateSelect.addEventListener('change', async () => {
 // --- Area scan tab ---
 const tabTrace = document.getElementById('tabTrace');
 const tabArea = document.getElementById('tabArea');
+const tabPy = document.getElementById('tabPy');
 const paneTrace = document.getElementById('paneTrace');
 const paneArea = document.getElementById('paneArea');
+const paneAnalyze = document.getElementById('paneAnalyze');
 const scanSelect = document.getElementById('scanSelect');
 const scanStatus = document.getElementById('scanStatus');
 const scanList = document.getElementById('scanList');
 
 function setTab(name) {
-  const isTrace = name === 'trace';
-  tabTrace.classList.toggle('active', isTrace);
-  tabArea.classList.toggle('active', !isTrace);
-  paneTrace.hidden = !isTrace;
-  paneArea.hidden = isTrace;
-  trackLayer.clearLayers();
+  tabTrace.classList.toggle('active', name === 'trace');
+  tabArea.classList.toggle('active', name === 'area');
+  tabPy.classList.toggle('active', name === 'analyze');
+  paneTrace.hidden = name !== 'trace';
+  paneArea.hidden = name !== 'area';
+  paneAnalyze.hidden = name !== 'analyze';
+  if (name !== 'analyze') trackLayer.clearLayers();
 }
 tabTrace.addEventListener('click', () => setTab('trace'));
 tabArea.addEventListener('click', () => { setTab('area'); scanSelect.dispatchEvent(new Event('change')); });
+tabPy.addEventListener('click', () => setTab('analyze'));
 
 fetch('data/area_scans/index.json').then(r => r.ok ? r.json() : []).then(manifest => {
   if (!manifest.length) {
@@ -160,6 +181,7 @@ scanSelect.addEventListener('change', async () => {
   const doc = await fetch(`data/area_scans/${file}`).then(r => r.json());
   const aircraft = doc.aircraft || [];
   scanStatus.textContent = `${doc.date} — ${aircraft.length} distinct aircraft in bbox, hours [${doc.hours_scanned.join(',')}]`;
+  lastLoaded = { kind: 'scan', records: aircraft };
   scanList.innerHTML = aircraft.map(a =>
     `<div class="scan-row">${a.hex} — ${a.reg_country} — (${a.lat.toFixed(2)}, ${a.lon.toFixed(2)}) @ ${a.alt_ft} ft, hr${a.first_hour}</div>`
   ).join('');
@@ -171,6 +193,47 @@ scanSelect.addEventListener('change', async () => {
     }).bindTooltip(`${a.hex} (${a.reg_country}) @ ${a.alt_ft}ft`).addTo(trackLayer);
   });
   if (aircraft.length) map.fitBounds([[b.min_lat, b.min_lon], [b.max_lat, b.max_lon]]);
+});
+
+// --- Analyze tab (Pyodide, loaded on demand — not on page load) ---
+const pyLoadBtn = document.getElementById('pyLoadBtn');
+const pyRunBtn = document.getElementById('pyRunBtn');
+const pyCode = document.getElementById('pyCode');
+const pyOut = document.getElementById('pyOut');
+let pyodide = null;
+
+pyLoadBtn.addEventListener('click', async () => {
+  if (!lastLoaded) {
+    pyOut.textContent = 'Load an aircraft trace or an area scan first (other tabs), then come back here.';
+    return;
+  }
+  pyLoadBtn.disabled = true;
+  pyLoadBtn.textContent = 'Loading Pyodide + pandas…';
+  const script = document.createElement('script');
+  script.src = 'https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js';
+  document.head.appendChild(script);
+  await new Promise((resolve, reject) => { script.onload = resolve; script.onerror = reject; });
+  pyodide = await loadPyodide();
+  await pyodide.loadPackage('pandas');
+  pyodide.globals.set('_records', pyodide.toPy(lastLoaded.records));
+  await pyodide.runPythonAsync('import pandas as pd\ndf = pd.DataFrame(_records)');
+  pyLoadBtn.hidden = true;
+  pyCode.hidden = false;
+  pyRunBtn.hidden = false;
+  pyOut.textContent = `Ready — df has ${lastLoaded.records.length} rows from your last-viewed ${lastLoaded.kind}. Try df.head(), df.describe(), or df.sort_values('alt' in df.columns and 'alt' or 'alt_ft').`;
+});
+
+pyRunBtn.addEventListener('click', async () => {
+  if (!pyodide) return;
+  pyRunBtn.disabled = true;
+  try {
+    let result = await pyodide.runPythonAsync(pyCode.value);
+    if (result && result.toString) result = result.toString();
+    pyOut.textContent = result === undefined ? '(no output — assign the last line to a bare expression to see it)' : String(result);
+  } catch (err) {
+    pyOut.textContent = 'Error: ' + err.message;
+  }
+  pyRunBtn.disabled = false;
 });
 </script>
 </body>
