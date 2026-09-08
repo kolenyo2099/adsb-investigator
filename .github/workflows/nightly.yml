@@ -47,6 +47,13 @@ jobs:
       - name: Build daily index
         run: python3 scripts/build_index.py ${{ steps.dates.outputs.list }}
 
+      # The per-day index is the archive and is kept forever (~1 MB/day). The
+      # path geometry is a convenience layer three times that size, so old ones
+      # are dropped; rebuilding a specific day is one workflow_dispatch away.
+      - name: Prune flight paths older than 90 days
+        run: |
+          find data/daily -name '*.tracks.json.gz' -mtime +90 -print -delete || true
+
       - name: Commit
         run: |
           git config user.name "adsb-investigator-bot"

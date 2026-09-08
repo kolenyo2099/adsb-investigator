@@ -320,14 +320,30 @@ effective way to surface aircraft that spent the day orbiting rather than going
 anywhere.</p>
 
 <h3>Drawing the flight paths</h3>
-<p>Once a search returns 40 aircraft or fewer, a <strong>Draw flight
-paths</strong> button appears. Each path is fetched individually, which is why
-it is a deliberate step rather than something that happens automatically.</p>
+<p>Once a search is down to a few hundred aircraft, <strong>Draw flight
+paths</strong> replaces the dots with the routes themselves. The paths come
+from the same nightly index, so this is one download for the whole day rather
+than a request per aircraft.</p>
 
-<p>The shapes are the point. Racetrack orbits, repeated circuits and survey
-grids are obvious as lines and invisible as dots. Hover any path for the
-registration, type and how the track began and ended; select one to open its
-full record.</p>
+<p>The shapes are the point. Rectangular traffic circuits, holding orbits and
+survey grids are unmistakable as lines and completely invisible as dots. Hover
+a path for its ceiling, hours and position count; select one to identify the
+aircraft and open its full record.</p>
+
+<div class="callout">
+  <div class="hd">What simplification means here</div>
+  <p>Paths are thinned in proportion to how far each aircraft ranged that day,
+  so a tight circuit keeps its corners while a long crossing is reduced to the
+  turns that matter. The shape is faithful; the fine detail between turns is
+  not. For exact positions, open the aircraft's full record.</p>
+</div>
+
+<h3>The legend</h3>
+<p>The panel at the bottom left of the map explains the current view and
+changes with the tab you are on. It can be collapsed once the symbols are
+familiar. The distinction worth remembering is the one in section 4: filled
+dots mark positions observed on the ground, hollow dots mark where a track
+merely entered or left receiver coverage.</p>
 
 <p>Results are coloured by what the ICAO address reveals about registration:
 red for United States registration, grey where the country has not been

@@ -257,8 +257,55 @@ footer a:hover { color: var(--accent); }
   font: 400 var(--t2)/1.55 var(--mono); color: var(--fg-dim); white-space: pre;
 }
 
+/* ---------- legend ---------- */
+#legend {
+  position: absolute; left: 12px; bottom: 12px; z-index: 600;
+  width: 244px; margin: 0; background: color-mix(in srgb, var(--panel) 94%, transparent);
+  border: 1px solid var(--line); border-radius: 9px; box-shadow: var(--shadow);
+}
+#legend > summary {
+  list-style: none; cursor: pointer; padding: 8px 12px;
+  font-size: var(--t1); font-weight: 600; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--fg-faint);
+  display: flex; align-items: center; justify-content: space-between;
+}
+#legend > summary::-webkit-details-marker { display: none; }
+#legend > summary::after { content: "−"; font-family: var(--mono); }
+#legend:not([open]) > summary::after { content: "+"; }
+#legend > summary:hover { color: var(--fg); }
+#legend .body { padding: 2px 12px 11px; }
+#legend .grp + .grp { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--line-soft); }
+#legend .grp b {
+  display: block; font-size: var(--t1); font-weight: 600; color: var(--fg-faint);
+  letter-spacing: .06em; margin-bottom: 5px;
+}
+#legend .k { display: flex; align-items: center; gap: 8px; padding: 2px 0; font-size: var(--t2); color: var(--fg-dim); }
+#legend .k i { flex: none; width: 20px; height: 12px; display: block; }
+#legend .k svg { display: block; overflow: visible; }
+
+/* ---------- aircraft popup ---------- */
+.leaflet-popup-content-wrapper, .leaflet-popup-tip {
+  background: var(--panel); color: var(--fg);
+  border: 1px solid var(--line); box-shadow: var(--shadow);
+}
+.leaflet-popup-content { margin: 11px 13px; font-family: var(--sans); }
+.leaflet-popup-close-button { color: var(--fg-faint) !important; }
+.acp { min-width: 186px; }
+.acp b { font: 600 var(--t3)/1.2 var(--mono); }
+.acp-r { font-size: var(--t2); color: var(--fg-dim); margin: 2px 0 8px; }
+.acp table { width: 100%; border-collapse: collapse; margin-bottom: 9px; }
+.acp td { padding: 2px 0; font-size: var(--t2); color: var(--fg-dim); }
+.acp td:last-child { text-align: right; font-family: var(--mono); color: var(--fg); }
+.acp-btn {
+  width: 100%; padding: 7px; background: var(--accent); color: #04121f;
+  border: 0; border-radius: 6px; cursor: pointer; font: 600 var(--t2)/1 var(--sans);
+}
+:root[data-theme="light"] .acp-btn { color: #fff; }
+.acp-btn:hover { filter: brightness(1.12); }
+.acp-note { margin-top: 7px; font-size: var(--t1); line-height: 1.5; color: var(--fg-faint); }
+
 /* ---------- map ---------- */
-#map { flex: 1; height: 100%; background: var(--bg); }
+#map { flex: 1; height: 100%; background: var(--bg); position: relative; }
 .leaflet-container { background: var(--bg); font-family: var(--sans); }
 .leaflet-control-zoom a {
   background: var(--panel) !important; color: var(--fg) !important;
@@ -388,7 +435,12 @@ footer a:hover { color: var(--accent); }
 
   <footer><a href="tutorial.html">How to use this tool →</a></footer>
 </div>
-<div id="map"></div>
+<div id="map">
+  <details id="legend" open>
+    <summary>Legend</summary>
+    <div class="body" id="legendBody"></div>
+  </details>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
@@ -399,9 +451,11 @@ const GAP_THRESHOLD_S = 20 * 60;   // shorter gaps are routine dropout, not a fi
 const CRUISE_KMH = 850;
 const STOP_ASSUMPTIONS_H = [0, 0.5, 1, 2];
 const MAX_MARKERS = 800;   // beyond this the map stops being readable anyway
-const TRACK_LIMIT = 40;    // each drawn path is its own fetch, so keep it deliberate
+const TRACK_LIMIT = 600;   // paths come from one file, so the cap is about legibility
+const MAX_PATHS = 600;     // beyond this the map is a hairball, not a finding
 
 const $ = id => document.getElementById(id);
+const cssVar = n => getComputedStyle(root).getPropertyValue(n).trim();
 const fmt = n => n.toLocaleString('en-US');
 
 /* ---------------- theme ---------------- */
@@ -445,7 +499,40 @@ function setTab(id) {
     $(pane).hidden = !on;
   });
 }
-TABS.forEach(([btn]) => $(btn).addEventListener('click', () => setTab(btn)));
+TABS.forEach(([btn]) => $(btn).addEventListener('click', () => { setTab(btn); drawLegend(btn); }));
+
+/* ---------------- legend ---------------- */
+const swatch = {
+  line: c => `<svg width="20" height="12"><path d="M0 9 L7 3 L13 9 L20 3" stroke="${c}" stroke-width="2" fill="none"/></svg>`,
+  dot: (c, filled) => `<svg width="20" height="12"><circle cx="10" cy="6" r="4.5" stroke="${c}" stroke-width="2" fill="${filled ? c : 'none'}"/></svg>`,
+  ring: c => `<svg width="20" height="12"><circle cx="10" cy="6" r="5" stroke="${c}" stroke-width="1.5" fill="none" stroke-dasharray="3 2.5"/></svg>`,
+  box: c => `<svg width="20" height="12"><rect x="1" y="1" width="18" height="10" stroke="${c}" stroke-width="1.5" fill="none" stroke-dasharray="3 2.5"/></svg>`,
+};
+const key = (mark, text) => `<div class="k"><i>${mark}</i><span>${text}</span></div>`;
+
+function drawLegend(tab) {
+  const accent = cssVar('--accent'), signal = cssVar('--signal'),
+        go = cssVar('--go'), fg = cssVar('--fg'), faint = cssVar('--fg-faint');
+  const ground = `<div class="grp"><b>Ends of a track</b>
+    ${key(swatch.dot(go, true), 'First position, on the ground')}
+    ${key(swatch.dot(go, false), 'First position, already airborne')}
+    ${key(swatch.dot(fg, true), 'Last position, on the ground')}
+    ${key(swatch.dot(fg, false), 'Last position, still airborne')}
+  </div>`;
+
+  $('legendBody').innerHTML = tab === 'tabArea'
+    ? `<div class="grp"><b>Area search</b>
+        ${key(swatch.line(accent), 'Flight path')}
+        ${key(swatch.line(signal), 'Flight path, US-registered')}
+        ${key(swatch.dot(faint, false), 'Aircraft position, no path drawn')}
+        ${key(swatch.box(faint), 'Your search area')}
+       </div>`
+    : `<div class="grp"><b>Aircraft track</b>
+        ${key(swatch.line(accent), 'Observed flight path')}
+        ${key(swatch.ring(signal), 'How far it could have gone while unobserved')}
+       </div>${ground}`;
+}
+drawLegend('tabTrace');
 
 /* ---------------- shared gap logic (mirrors scripts/) ---------------- */
 function computeGaps(points) {
@@ -585,7 +672,7 @@ function renderTrace(doc) {
   const ends = track.length ? { start: endpointOf(track, 'start'), end: endpointOf(track, 'end') } : null;
 
   if (pts.length) {
-    const line = L.polyline(pts, { color: getComputedStyle(root).getPropertyValue('--accent').trim(), weight: 2.5, opacity: .9 }).addTo(layer);
+    const line = L.polyline(pts, { color: cssVar('--accent'), weight: 2.5, opacity: .9 }).addTo(layer);
     map.fitBounds(line.getBounds(), { maxZoom: 7, padding: [30, 30] });
 
     const label = (e, which) => {
@@ -598,11 +685,11 @@ function renderTrace(doc) {
     // Filled marker where the aircraft was actually on the ground; hollow where
     // the track merely entered or left coverage.
     L.circleMarker(pts[0], {
-      radius: 6, weight: 2, color: getComputedStyle(root).getPropertyValue('--go').trim(),
+      radius: 6, weight: 2, color: cssVar('--go'),
       fillOpacity: ends.start.onGround ? .95 : 0,
     }).bindTooltip(label(ends.start, 'start')).addTo(layer);
     L.circleMarker(pts.at(-1), {
-      radius: 6, weight: 2, color: getComputedStyle(root).getPropertyValue('--fg').trim(),
+      radius: 6, weight: 2, color: cssVar('--fg'),
       fillOpacity: ends.end.onGround ? .95 : 0,
     }).bindTooltip(label(ends.end, 'end')).addTo(layer);
   }
@@ -610,7 +697,7 @@ function renderTrace(doc) {
 
   const gaps = doc.gaps || [];
   const air = gaps.filter(g => g.airborne);
-  const signal = getComputedStyle(root).getPropertyValue('--signal').trim();
+  const signal = cssVar('--signal');
 
   const cards = gaps.map((g, i) => {
     const where = `<span class="coord">${g.last_known_lat.toFixed(4)}, ${g.last_known_lon.toFixed(4)}</span>`;
@@ -818,10 +905,10 @@ $('searchAreaBtn').addEventListener('click', async () => {
     });
 
     layer.clearLayers();
-    L.rectangle(b, { color: getComputedStyle(root).getPropertyValue('--fg-faint').trim(), weight: 1, dashArray: '3 4', fillOpacity: 0 }).addTo(layer);
+    L.rectangle(b, { color: cssVar('--fg-faint'), weight: 1, dashArray: '3 4', fillOpacity: 0 }).addTo(layer);
 
-    const signal = getComputedStyle(root).getPropertyValue('--signal').trim();
-    const dim = getComputedStyle(root).getPropertyValue('--fg-faint').trim();
+    const signal = cssVar('--signal');
+    const dim = cssVar('--fg-faint');
     hits.slice(0, MAX_MARKERS).forEach(a => {
       L.circleMarker([(a[1] + a[3]) / 2, (a[2] + a[4]) / 2], {
         radius: 3.5, weight: 1.5, opacity: .85, fillOpacity: .35,
@@ -853,8 +940,8 @@ $('searchAreaBtn').addEventListener('click', async () => {
         <div class="sub">in view on ${date}${hits.length > MAX_MARKERS ? ` · first ${fmt(MAX_MARKERS)} mapped` : ''}</div>
       </div>
       ${hits.length <= TRACK_LIMIT
-        ? `<button class="ghost" id="drawBtn">Draw flight paths for these ${hits.length}</button>`
-        : `<p class="note">Narrow to ${TRACK_LIMIT} aircraft or fewer to draw their flight paths. Each path is a separate fetch, so this stays deliberate rather than automatic.</p>`}
+        ? `<button class="ghost" id="drawBtn">Draw flight paths for these ${fmt(hits.length)}</button>`
+        : `<p class="note">Narrow to ${TRACK_LIMIT} aircraft or fewer before drawing paths, or the map becomes a hairball.</p>`}
       <div class="hits">${rows}</div>
       ${hits.length > 200 ? `<p class="note" style="margin-top:10px">Showing the first 200. Zoom in, or filter by altitude, to narrow it.</p>` : ''}
       <p class="note" style="margin-top:12px">Select any aircraft to pull its full track for that day.</p>`;
@@ -881,90 +968,98 @@ function openTrace(hex, date) {
   doLookup();
 }
 
-// Fetch one day's trace, unstitched — enough to draw a path.
-async function fetchOneDay(hex, date, auth) {
-  try {
-    const r = await fetch(`${PROXY}/trace/${date}/${hex}`, { headers: { Authorization: auth } });
-    if (!r.ok) return null;
-    const doc = await r.json();
-    const base = doc.timestamp || 0;
-    return { hex, reg: doc.r, type: doc.t,
-             trace: (doc.trace || []).map(p => [base + p[0], p[1], p[2], p[3], p[4]]) };
-  } catch { return null; }
-}
+// Paths come from the nightly index, not the lookup service: one fetch for the
+// whole day rather than one per aircraft, and no credentials needed.
+const trackCache = new Map();
 
-async function pool(items, width, fn) {
-  const out = new Array(items.length);
-  let i = 0;
-  await Promise.all(Array.from({ length: Math.min(width, items.length) }, async () => {
-    while (i < items.length) { const k = i++; out[k] = await fn(items[k]); }
-  }));
+async function loadTracks(date) {
+  if (trackCache.has(date)) return trackCache.get(date);
+  const res = await fetch(`data/daily/${date}.tracks.json.gz`);
+  if (!res.ok) throw new Error(`No flight paths published for ${date}.`);
+  const doc = await readMaybeGzip(res);
+  const scale = doc.scale || 1000;
+  const out = new Map();
+  for (const [hex, deltas] of Object.entries(doc.tracks)) {
+    const pts = [];
+    let la = 0, lo = 0;
+    for (let i = 0; i < deltas.length; i += 2) {
+      la += deltas[i]; lo += deltas[i + 1];
+      pts.push([la / scale, lo / scale]);
+    }
+    out.set(hex, pts);
+  }
+  trackCache.set(date, out);
   return out;
 }
 
 async function drawTracks(hits, date, bounds) {
   const btn = $('drawBtn');
-  const auth = authHeader();
-  if (!PROXY || !auth) {
-    $('areaOut').insertAdjacentHTML('afterbegin',
-      `<div class="alert">Drawing flight paths needs the lookup service and your access credentials. Enter them on the Trace tab.</div>`);
-    return;
-  }
   btn.disabled = true;
-  btn.textContent = `Fetching 0/${hits.length}`;
-  await loadAirports();
+  btn.innerHTML = '<span class="spinner"></span>Loading paths';
+  try {
+    const tracks = await loadTracks(date);
+    layer.clearLayers();
+    L.rectangle(bounds, { color: cssVar('--fg-faint'), weight: 1, dashArray: '3 4', fillOpacity: 0 }).addTo(layer);
 
-  let done = 0;
-  const docs = await pool(hits, 6, async h => {
-    const d = await fetchOneDay(h[0], date, auth);
-    btn.textContent = `Fetching ${++done}/${hits.length}`;
-    return d;
-  });
+    const accent = cssVar('--accent'), signal = cssVar('--signal');
+    let drawn = 0, missing = 0;
 
-  layer.clearLayers();
-  L.rectangle(bounds, { color: getComputedStyle(root).getPropertyValue('--fg-faint').trim(), weight: 1, dashArray: '3 4', fillOpacity: 0 }).addTo(layer);
-
-  const accent = getComputedStyle(root).getPropertyValue('--accent').trim();
-  const go = getComputedStyle(root).getPropertyValue('--go').trim();
-  const fg = getComputedStyle(root).getPropertyValue('--fg').trim();
-  let drawn = 0;
-
-  docs.filter(Boolean).forEach(d => {
-    if (d.trace.length < 2) return;
-    drawn++;
-    const ends = { start: endpointOf(d.trace, 'start'), end: endpointOf(d.trace, 'end') };
-    const name = d.reg ? `${d.reg} (${d.hex.toUpperCase()})` : d.hex.toUpperCase();
-    const field = e => (e.near && e.near.a && e.near.km <= (e.onGround ? ON_GROUND_KM : CONTEXT_KM)) ? e.near.a[0] : null;
-    const leg = e => e.onGround
-      ? (field(e) || 'ground') : `airborne ${fmt(e.alt)} ft`;
-
-    const line = L.polyline(d.trace.map(p => [p[1], p[2]]),
-      { color: accent, weight: 2, opacity: .75 }).addTo(layer);
-    line.bindTooltip(
-      `${name}${d.type ? ' · ' + d.type : ''}<br>${leg(ends.start)} → ${leg(ends.end)}<br>` +
-      `<span style="opacity:.7">click for the full record</span>`,
-      { sticky: true }
-    );
-    line.on('click', () => openTrace(d.hex, date));
-    line.on('mouseover', () => line.setStyle({ weight: 4, opacity: 1 }));
-    line.on('mouseout', () => line.setStyle({ weight: 2, opacity: .75 }));
-
-    // Filled where the aircraft was genuinely on the ground, hollow where the
-    // track only entered or left coverage.
-    [['start', go], ['end', fg]].forEach(([w, colour]) => {
-      const e = ends[w];
-      L.circleMarker([e.lat, e.lon], { radius: 4, weight: 2, color: colour, fillOpacity: e.onGround ? .95 : 0 })
-        .bindTooltip(`${name} · ${w === 'start' ? 'first' : 'last'} heard · ${leg(e)}`)
-        .addTo(layer);
+    hits.slice(0, MAX_PATHS).forEach(a => {
+      const pts = tracks.get(a[0]);
+      if (!pts || pts.length < 2) { missing++; return; }
+      drawn++;
+      const us = a[9] === 'US';
+      const line = L.polyline(pts, { color: us ? signal : accent, weight: 1.6, opacity: .7 }).addTo(layer);
+      line.bindTooltip(
+        `<b>${a[0].toUpperCase()}</b>${us ? ' · US' : ''}<br>` +
+        `ceiling ${fmt(a[7])} ft · ${String(a[5]).padStart(2, '0')}–${String(a[6]).padStart(2, '0')}h · ${fmt(a[8])} positions<br>` +
+        `<span style="opacity:.65">click for details</span>`, { sticky: true });
+      line.on('mouseover', () => line.setStyle({ weight: 3.4, opacity: 1 }));
+      line.on('mouseout', () => line.setStyle({ weight: 1.6, opacity: .7 }));
+      line.on('click', e => showAircraft(a, date, e.latlng));
     });
-  });
 
+    $('areaOut').querySelectorAll('.pathnote').forEach(n => n.remove());
+    btn.insertAdjacentHTML('afterend',
+      `<p class="note pathnote">${fmt(drawn)} path${drawn === 1 ? '' : 's'} drawn${missing ? `, ${fmt(missing)} with too few positions to plot` : ''}${hits.length > MAX_PATHS ? `, capped at ${fmt(MAX_PATHS)}` : ''}. Paths are simplified in proportion to how far each aircraft ranged, so orbits keep their shape while long crossings stay light.</p>`);
+  } catch (err) {
+    $('areaOut').querySelectorAll('.pathnote').forEach(n => n.remove());
+    btn.insertAdjacentHTML('afterend', `<p class="note pathnote">${err.message}</p>`);
+  }
   btn.disabled = false;
-  btn.textContent = `Redraw flight paths`;
-  const missing = hits.length - drawn;
-  $('areaOut').querySelectorAll('.pathnote').forEach(n => n.remove());
-  btn.insertAdjacentHTML('afterend',
-    `<p class="note pathnote">${fmt(drawn)} path${drawn === 1 ? '' : 's'} drawn${missing > 0 ? `, ${fmt(missing)} unavailable for this day` : ''}. Filled dots mark positions observed on the ground; hollow dots mark where a track entered or left coverage.</p>`);
+  btn.textContent = 'Redraw flight paths';
+}
+
+// Identity needs one hexdb call, which is CORS-open and needs no proxy.
+async function showAircraft(a, date, latlng) {
+  const hex = a[0];
+  const popup = L.popup({ className: 'ac-popup' }).setLatLng(latlng)
+    .setContent(`<div class="acp"><b>${hex.toUpperCase()}</b><div class="acp-r">identifying…</div></div>`)
+    .openOn(map);
+  let reg = '', type = '';
+  try {
+    const [r, t] = await Promise.all([
+      fetch(`https://hexdb.io/hex-reg?hex=${hex}`).then(x => x.text()).catch(() => ''),
+      fetch(`https://hexdb.io/hex-type?hex=${hex}`).then(x => x.text()).catch(() => ''),
+    ]);
+    reg = (r || '').trim(); type = (t || '').trim();
+    if (reg === 'n/a') reg = '';
+    if (type === 'n/a') type = '';
+  } catch {}
+  popup.setContent(`<div class="acp">
+    <b>${reg || hex.toUpperCase()}</b>
+    <div class="acp-r">${reg ? hex.toUpperCase() + ' · ' : ''}${type || 'type not on record'}${a[9] === 'US' ? ' · US-registered' : ''}</div>
+    <table>
+      <tr><td>Ceiling</td><td>${fmt(a[7])} ft</td></tr>
+      <tr><td>Heard</td><td>${String(a[5]).padStart(2, '0')}:00–${String(a[6]).padStart(2, '0')}:59Z</td></tr>
+      <tr><td>Positions</td><td>${fmt(a[8])}</td></tr>
+      <tr><td>Range</td><td>${Math.round(haversineKm(a[1], a[2], a[3], a[4]))} km</td></tr>
+    </table>
+    <button class="acp-btn" data-hex="${hex}" data-date="${date}">Open full record</button>
+    ${reg === '' ? '<div class="acp-note">Not in the public registration database, which is itself worth noting.</div>' : ''}
+  </div>`);
+  const b = document.querySelector('.acp-btn');
+  if (b) b.onclick = () => { map.closePopup(); openTrace(hex, date); };
 }
 
 /* ---------------- analyze ---------------- */
