@@ -174,6 +174,21 @@ details.tuck .body { padding-top: 12px; }
 .summary .stats div { font-size: var(--t1); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); }
 .summary .stats b { display: block; margin-top: 3px; font: 600 var(--t4)/1.1 var(--mono); color: var(--fg); letter-spacing: 0; text-transform: none; }
 
+.sect {
+  font-size: var(--t1); font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--fg-faint); margin: 22px 0 9px;
+}
+.ends { display: grid; gap: 8px; margin: 14px 0 10px; }
+.end { background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; padding: 11px 13px; }
+.end .cap {
+  font-size: var(--t1); font-weight: 600; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--fg-faint); margin-bottom: 5px;
+}
+.end.observed { border-color: color-mix(in srgb, var(--go) 42%, var(--line)); }
+.end.observed .cap { color: var(--go); }
+.end .place { font-size: var(--t2); font-weight: 600; color: var(--fg); }
+.end .det { margin-top: 3px; font: 400 var(--t1)/1.5 var(--mono); color: var(--fg-dim); }
+
 .gap {
   border: 1px solid var(--signal-dim); border-radius: 9px;
   padding: 12px 14px; margin-bottom: 9px; background: var(--panel-2);
@@ -323,6 +338,28 @@ footer a:hover { color: var(--accent); }
     <label class="field"><span>Indexed day</span>
       <select id="daySelect"><option>Loading…</option></select>
     </label>
+    <label class="field"><span>Presence in view</span>
+      <select id="scopeFilter">
+        <option value="touch">Passed through the view</option>
+        <option value="within">Stayed entirely in the view all day</option>
+      </select>
+    </label>
+    <div class="row">
+      <label class="field"><span>Ceiling min (ft)</span>
+        <input id="altMin" type="number" min="0" step="1000" placeholder="any">
+      </label>
+      <label class="field"><span>Ceiling max (ft)</span>
+        <input id="altMax" type="number" min="0" step="1000" placeholder="any">
+      </label>
+    </div>
+    <div class="row">
+      <label class="field"><span>Active from</span>
+        <select id="hourFrom"></select>
+      </label>
+      <label class="field"><span>Active to</span>
+        <select id="hourTo"></select>
+      </label>
+    </div>
     <div class="row">
       <label class="field"><span>Registration</span>
         <select id="regFilter">
@@ -331,12 +368,12 @@ footer a:hover { color: var(--accent); }
           <option value="unknown">Not resolved</option>
         </select>
       </label>
-      <label class="field"><span>Min altitude (ft)</span>
-        <input id="altFilter" type="number" min="0" step="1000" placeholder="0">
+      <label class="field"><span>Max range (km)</span>
+        <input id="spanMax" type="number" min="0" step="50" placeholder="any">
       </label>
     </div>
     <button class="primary" id="searchAreaBtn">Search this map view</button>
-    <p class="note" style="margin-top:9px">Pan and zoom the map to frame your region, then search. Every aircraft seen that day is already loaded — filtering happens instantly, on your machine.</p>
+    <p class="note" style="margin-top:9px">Frame your region on the map, then search. The whole day is already loaded, so filtering runs instantly on your machine. <strong>Stayed entirely in the view</strong> drops aircraft that were only passing overhead; a small <strong>max range</strong> finds aircraft that circled rather than travelled.</p>
     <div id="areaOut"></div>
   </div>
 
@@ -361,7 +398,8 @@ const PROXY = '';
 const GAP_THRESHOLD_S = 20 * 60;   // shorter gaps are routine dropout, not a finding
 const CRUISE_KMH = 850;
 const STOP_ASSUMPTIONS_H = [0, 0.5, 1, 2];
-const MAX_MARKERS = 800;           // beyond this the map stops being readable anyway
+const MAX_MARKERS = 800;   // beyond this the map stops being readable anyway
+const TRACK_LIMIT = 40;    // each drawn path is its own fetch, so keep it deliberate
 
 const $ = id => document.getElementById(id);
 const fmt = n => n.toLocaleString('en-US');
@@ -436,19 +474,137 @@ const duration = s => {
   const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
   return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
 };
+const clockZ = t => new Date(t * 1000).toISOString().slice(11, 16) + 'Z';
+
+// Some hosts decompress .gz in transit and hand back plain JSON. Check the
+// magic bytes rather than trusting the extension.
+async function readMaybeGzip(res) {
+  const buf = await res.arrayBuffer();
+  const head = new Uint8Array(buf.slice(0, 2));
+  const text = (head[0] === 0x1f && head[1] === 0x8b)
+    ? await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text()
+    : new TextDecoder().decode(buf);
+  return JSON.parse(text);
+}
+
+/* ---------------- where a track begins and ends ----------------
+   A track that starts or stops ON THE GROUND tells you where the aircraft
+   actually was: that is an observation. A track that starts or stops in the
+   air tells you only where it entered or left receiver range. The two are
+   reported differently on purpose, and neither is ever called a destination. */
+
+const ON_GROUND_KM = 6;    // an airport this close to a ground position is the field
+const CONTEXT_KM = 80;     // farther than this, naming a field would mislead
+
+let AIRPORTS = null;
+async function loadAirports() {
+  if (AIRPORTS) return AIRPORTS;
+  try {
+    const res = await fetch('data/airports.json.gz');
+    if (!res.ok) return (AIRPORTS = []);
+    AIRPORTS = (await readMaybeGzip(res)).airports;
+  } catch { AIRPORTS = []; }
+  return AIRPORTS;
+}
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371, rad = d => d * Math.PI / 180;
+  const dLat = rad(lat2 - lat1), dLon = rad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function nearestAirport(lat, lon) {
+  if (!AIRPORTS || !AIRPORTS.length) return null;
+  let best = null, bestKm = Infinity;
+  for (const a of AIRPORTS) {
+    const km = haversineKm(lat, lon, a[3], a[4]);
+    if (km < bestKm) { bestKm = km; best = a; }
+  }
+  return { a: best, km: bestKm };
+}
+
+// Read the vertical trend across the few points nearest the end of the track.
+function trendOf(seq) {
+  const alts = seq.map(p => p[3]).filter(v => typeof v === 'number');
+  if (alts.length < 2) return null;
+  const delta = alts.at(-1) - alts[0];
+  if (Math.abs(delta) < 300) return 'holding level';
+  return delta > 0 ? 'climbing' : 'descending';
+}
+
+function endpointOf(points, which) {
+  const p = which === 'start' ? points[0] : points.at(-1);
+  const seq = which === 'start' ? points.slice(0, 8) : points.slice(-8);
+  const onGround = p[3] === 'ground';
+  return {
+    lat: p[1], lon: p[2], alt: p[3], t: p[0], onGround,
+    trend: onGround ? null : trendOf(seq),
+    near: nearestAirport(p[1], p[2]),
+  };
+}
+
+function endpointCard(e, which) {
+  const isStart = which === 'start';
+  const coord = `${e.lat.toFixed(4)}, ${e.lon.toFixed(4)}`;
+  const named = e.near && e.near.a
+    ? `${e.near.a[2]}${e.near.a[0] ? ` (${e.near.a[0]})` : ''}`
+    : null;
+
+  if (e.onGround && named && e.near.km <= ON_GROUND_KM) {
+    return `<div class="end observed">
+      <div class="cap">${isStart ? 'Departed' : 'Arrived'} · observed on the ground</div>
+      <div class="place">${named}</div>
+      <div class="det">${clockZ(e.t)} · ${coord}</div>
+    </div>`;
+  }
+  if (e.onGround) {
+    return `<div class="end observed">
+      <div class="cap">${isStart ? 'Departed' : 'Arrived'} · observed on the ground</div>
+      <div class="place">No airfield on record within ${ON_GROUND_KM} km</div>
+      <div class="det">${clockZ(e.t)} · ${coord}</div>
+    </div>`;
+  }
+  const context = named && e.near.km <= CONTEXT_KM
+    ? `<div class="det">Nearest airfield ${named}, ${Math.round(e.near.km)} km away</div>` : '';
+  return `<div class="end">
+    <div class="cap">${isStart ? 'Origin not observed' : 'Destination not observed'}</div>
+    <div class="place">${isStart ? 'First heard' : 'Last heard'} airborne at ${fmt(e.alt)} ft${e.trend ? `, ${e.trend}` : ''}</div>
+    <div class="det">${clockZ(e.t)} · ${coord}</div>
+    ${context}
+  </div>`;
+}
 const stopLabel = h => h === 0 ? 'No ground stop' : h === 0.5 ? '30 min stop' : `${h} h stop`;
 
 /* ---------------- trace ---------------- */
 function renderTrace(doc) {
   layer.clearLayers();
-  const pts = (doc.trace || []).map(p => [p[1], p[2]]);
+  const track = doc.trace || [];
+  const pts = track.map(p => [p[1], p[2]]);
+  const ends = track.length ? { start: endpointOf(track, 'start'), end: endpointOf(track, 'end') } : null;
+
   if (pts.length) {
     const line = L.polyline(pts, { color: getComputedStyle(root).getPropertyValue('--accent').trim(), weight: 2.5, opacity: .9 }).addTo(layer);
     map.fitBounds(line.getBounds(), { maxZoom: 7, padding: [30, 30] });
-    L.circleMarker(pts[0], { radius: 5, color: getComputedStyle(root).getPropertyValue('--go').trim(), weight: 2, fillOpacity: .9 })
-      .bindTooltip('First seen').addTo(layer);
-    L.circleMarker(pts.at(-1), { radius: 5, color: getComputedStyle(root).getPropertyValue('--fg').trim(), weight: 2, fillOpacity: .9 })
-      .bindTooltip('Last seen').addTo(layer);
+
+    const label = (e, which) => {
+      const named = e.near && e.near.a && e.near.km <= (e.onGround ? ON_GROUND_KM : CONTEXT_KM) ? e.near.a[0] : null;
+      const verb = e.onGround
+        ? `${which === 'start' ? 'Departed' : 'Arrived'}${named ? ' ' + named : ''}`
+        : `${which === 'start' ? 'First heard' : 'Last heard'} airborne · ${fmt(e.alt)} ft`;
+      return `${verb} · ${clockZ(e.t)}`;
+    };
+    // Filled marker where the aircraft was actually on the ground; hollow where
+    // the track merely entered or left coverage.
+    L.circleMarker(pts[0], {
+      radius: 6, weight: 2, color: getComputedStyle(root).getPropertyValue('--go').trim(),
+      fillOpacity: ends.start.onGround ? .95 : 0,
+    }).bindTooltip(label(ends.start, 'start')).addTo(layer);
+    L.circleMarker(pts.at(-1), {
+      radius: 6, weight: 2, color: getComputedStyle(root).getPropertyValue('--fg').trim(),
+      fillOpacity: ends.end.onGround ? .95 : 0,
+    }).bindTooltip(label(ends.end, 'end')).addTo(layer);
   }
   lastLoaded = { kind: 'trace', records: (doc.trace || []).map(p => ({ t: p[0], lat: p[1], lon: p[2], alt: p[3], gs: p[4] })) };
 
@@ -483,7 +639,12 @@ function renderTrace(doc) {
         <div>Airborne<b>${air.length}</b></div>
       </div>
     </div>
-    ${gaps.length ? cards : '<div class="empty"><p>No coverage gaps over 20 minutes on this day.</p></div>'}
+    ${ends ? `<div class="ends">${endpointCard(ends.start, 'start')}${endpointCard(ends.end, 'end')}</div>
+      <p class="note">Endpoints are reported only where the track actually begins or
+      ends on the ground. Where it begins or ends in the air, the aircraft simply
+      entered or left receiver range, and where it came from or went next is not
+      in this data.</p>` : ''}
+    ${gaps.length ? `<h2 class="sect">Coverage gaps</h2>${cards}` : '<div class="empty"><p>No coverage gaps over 20 minutes on this day.</p></div>'}
     ${gaps.length && !air.length ? '<p class="note">Every gap here is on the ground. Nothing left coverage mid-flight.</p>' : ''}
     <p class="note" style="margin-top:14px">Reachable distances assume 850 km/h cruise. They describe what was possible, not what happened — and never a destination.</p>`;
 
@@ -584,7 +745,8 @@ async function doLookup() {
   lookupBtn.innerHTML = '<span class="spinner"></span>Searching';
   $('traceOut').innerHTML = '';
   try {
-    renderTrace(await liveLookup(raw, $('dateInput').value));
+    const [doc] = await Promise.all([liveLookup(raw, $('dateInput').value), loadAirports()]);
+    renderTrace(doc);
   } catch (err) {
     layer.clearLayers();
     $('traceOut').innerHTML = `<div class="alert">${err.message}</div>`;
@@ -602,17 +764,16 @@ async function loadDay(date) {
   if (dayCache.has(date)) return dayCache.get(date);
   const res = await fetch(`data/daily/${date}.json.gz`);
   if (!res.ok) throw new Error(`No index published for ${date}.`);
-  const buf = await res.arrayBuffer();
-  const head = new Uint8Array(buf.slice(0, 2));
-  // Check the magic bytes, not the extension: some hosts decompress .gz in
-  // transit and hand us plain JSON already.
-  const text = (head[0] === 0x1f && head[1] === 0x8b)
-    ? await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text()
-    : new TextDecoder().decode(buf);
-  const doc = JSON.parse(text);
+  const doc = await readMaybeGzip(res);
   dayCache.set(date, doc);
   return doc;
 }
+
+// Hour pickers default to the full day.
+['hourFrom', 'hourTo'].forEach((id, i) => {
+  $(id).innerHTML = Array.from({ length: 24 }, (_, h) =>
+    `<option value="${h}"${(i === 0 ? h === 0 : h === 23) ? ' selected' : ''}>${String(h).padStart(2, '0')}:00Z</option>`).join('');
+});
 
 fetch('data/daily/index.json').then(r => r.ok ? r.json() : []).then(list => {
   const sel = $('daySelect');
@@ -633,14 +794,28 @@ $('searchAreaBtn').addEventListener('click', async () => {
   try {
     const doc = await loadDay(date);
     const b = map.getBounds();
-    const minAlt = Number($('altFilter').value) || 0;
+    const [S, N, W, E] = [b.getSouth(), b.getNorth(), b.getWest(), b.getEast()];
+    const within = $('scopeFilter').value === 'within';
+    const altMin = Number($('altMin').value) || 0;
+    const altMax = Number($('altMax').value) || Infinity;
+    const hFrom = Number($('hourFrom').value);
+    const hTo = Number($('hourTo').value);
+    const spanMax = Number($('spanMax').value) || Infinity;
     const reg = $('regFilter').value;
 
     // Rows are [hex, minLat, minLon, maxLat, maxLon, firstHr, lastHr, maxAlt, positions, regCountry]
-    const hits = doc.aircraft.filter(a =>
-      a[3] >= b.getSouth() && a[1] <= b.getNorth() &&
-      a[4] >= b.getWest()  && a[2] <= b.getEast() &&
-      a[7] >= minAlt && (!reg || a[9] === reg));
+    const hits = doc.aircraft.filter(a => {
+      const inView = within
+        ? (a[1] >= S && a[3] <= N && a[2] >= W && a[4] <= E)   // whole day inside the frame
+        : (a[3] >= S && a[1] <= N && a[4] >= W && a[2] <= E);  // merely overlapped it
+      if (!inView) return false;
+      if (a[7] < altMin || a[7] > altMax) return false;
+      if (a[6] < hFrom || a[5] > hTo) return false;            // active during the window
+      if (reg && a[9] !== reg) return false;
+      // Corner-to-corner distance: small means it circled, large means it travelled.
+      if (spanMax !== Infinity && haversineKm(a[1], a[2], a[3], a[4]) > spanMax) return false;
+      return true;
+    });
 
     layer.clearLayers();
     L.rectangle(b, { color: getComputedStyle(root).getPropertyValue('--fg-faint').trim(), weight: 1, dashArray: '3 4', fillOpacity: 0 }).addTo(layer);
@@ -677,22 +852,120 @@ $('searchAreaBtn').addEventListener('click', async () => {
         <div class="id">${fmt(hits.length)} aircraft</div>
         <div class="sub">in view on ${date}${hits.length > MAX_MARKERS ? ` · first ${fmt(MAX_MARKERS)} mapped` : ''}</div>
       </div>
+      ${hits.length <= TRACK_LIMIT
+        ? `<button class="ghost" id="drawBtn">Draw flight paths for these ${hits.length}</button>`
+        : `<p class="note">Narrow to ${TRACK_LIMIT} aircraft or fewer to draw their flight paths. Each path is a separate fetch, so this stays deliberate rather than automatic.</p>`}
       <div class="hits">${rows}</div>
       ${hits.length > 200 ? `<p class="note" style="margin-top:10px">Showing the first 200. Zoom in, or filter by altitude, to narrow it.</p>` : ''}
       <p class="note" style="margin-top:12px">Select any aircraft to pull its full track for that day.</p>`;
 
     $('areaOut').querySelectorAll('.hit').forEach(el => el.addEventListener('click', () => {
-      $('tailInput').value = el.dataset.hex;
-      $('dateInput').value = date;
-      setTab('tabTrace');
-      doLookup();
+      openTrace(el.dataset.hex, date);
     }));
+
+    const drawBtn = $('drawBtn');
+    if (drawBtn) drawBtn.onclick = () => drawTracks(hits, date, b);
   } catch (err) {
     $('areaOut').innerHTML = `<div class="alert">${err.message}</div>`;
+  } finally {
+    // Must be finally: the no-results branch returns early.
+    btn.disabled = false;
+    btn.textContent = 'Search this map view';
   }
-  btn.disabled = false;
-  btn.textContent = 'Search this map view';
 });
+
+function openTrace(hex, date) {
+  $('tailInput').value = hex;
+  $('dateInput').value = date;
+  setTab('tabTrace');
+  doLookup();
+}
+
+// Fetch one day's trace, unstitched — enough to draw a path.
+async function fetchOneDay(hex, date, auth) {
+  try {
+    const r = await fetch(`${PROXY}/trace/${date}/${hex}`, { headers: { Authorization: auth } });
+    if (!r.ok) return null;
+    const doc = await r.json();
+    const base = doc.timestamp || 0;
+    return { hex, reg: doc.r, type: doc.t,
+             trace: (doc.trace || []).map(p => [base + p[0], p[1], p[2], p[3], p[4]]) };
+  } catch { return null; }
+}
+
+async function pool(items, width, fn) {
+  const out = new Array(items.length);
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(width, items.length) }, async () => {
+    while (i < items.length) { const k = i++; out[k] = await fn(items[k]); }
+  }));
+  return out;
+}
+
+async function drawTracks(hits, date, bounds) {
+  const btn = $('drawBtn');
+  const auth = authHeader();
+  if (!PROXY || !auth) {
+    $('areaOut').insertAdjacentHTML('afterbegin',
+      `<div class="alert">Drawing flight paths needs the lookup service and your access credentials. Enter them on the Trace tab.</div>`);
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = `Fetching 0/${hits.length}`;
+  await loadAirports();
+
+  let done = 0;
+  const docs = await pool(hits, 6, async h => {
+    const d = await fetchOneDay(h[0], date, auth);
+    btn.textContent = `Fetching ${++done}/${hits.length}`;
+    return d;
+  });
+
+  layer.clearLayers();
+  L.rectangle(bounds, { color: getComputedStyle(root).getPropertyValue('--fg-faint').trim(), weight: 1, dashArray: '3 4', fillOpacity: 0 }).addTo(layer);
+
+  const accent = getComputedStyle(root).getPropertyValue('--accent').trim();
+  const go = getComputedStyle(root).getPropertyValue('--go').trim();
+  const fg = getComputedStyle(root).getPropertyValue('--fg').trim();
+  let drawn = 0;
+
+  docs.filter(Boolean).forEach(d => {
+    if (d.trace.length < 2) return;
+    drawn++;
+    const ends = { start: endpointOf(d.trace, 'start'), end: endpointOf(d.trace, 'end') };
+    const name = d.reg ? `${d.reg} (${d.hex.toUpperCase()})` : d.hex.toUpperCase();
+    const field = e => (e.near && e.near.a && e.near.km <= (e.onGround ? ON_GROUND_KM : CONTEXT_KM)) ? e.near.a[0] : null;
+    const leg = e => e.onGround
+      ? (field(e) || 'ground') : `airborne ${fmt(e.alt)} ft`;
+
+    const line = L.polyline(d.trace.map(p => [p[1], p[2]]),
+      { color: accent, weight: 2, opacity: .75 }).addTo(layer);
+    line.bindTooltip(
+      `${name}${d.type ? ' · ' + d.type : ''}<br>${leg(ends.start)} → ${leg(ends.end)}<br>` +
+      `<span style="opacity:.7">click for the full record</span>`,
+      { sticky: true }
+    );
+    line.on('click', () => openTrace(d.hex, date));
+    line.on('mouseover', () => line.setStyle({ weight: 4, opacity: 1 }));
+    line.on('mouseout', () => line.setStyle({ weight: 2, opacity: .75 }));
+
+    // Filled where the aircraft was genuinely on the ground, hollow where the
+    // track only entered or left coverage.
+    [['start', go], ['end', fg]].forEach(([w, colour]) => {
+      const e = ends[w];
+      L.circleMarker([e.lat, e.lon], { radius: 4, weight: 2, color: colour, fillOpacity: e.onGround ? .95 : 0 })
+        .bindTooltip(`${name} · ${w === 'start' ? 'first' : 'last'} heard · ${leg(e)}`)
+        .addTo(layer);
+    });
+  });
+
+  btn.disabled = false;
+  btn.textContent = `Redraw flight paths`;
+  const missing = hits.length - drawn;
+  $('areaOut').querySelectorAll('.pathnote').forEach(n => n.remove());
+  btn.insertAdjacentHTML('afterend',
+    `<p class="note pathnote">${fmt(drawn)} path${drawn === 1 ? '' : 's'} drawn${missing > 0 ? `, ${fmt(missing)} unavailable for this day` : ''}. Filled dots mark positions observed on the ground; hollow dots mark where a track entered or left coverage.</p>`);
+}
 
 /* ---------------- analyze ---------------- */
 let pyodide = null;

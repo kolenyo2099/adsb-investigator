@@ -130,10 +130,11 @@ aircraft has been, and what it means when the record goes quiet.</p>
   <a href="#idea">1. What this data is, and is not</a>
   <a href="#trace">2. Following one aircraft</a>
   <a href="#gaps">3. Reading a gap report</a>
-  <a href="#area">4. Finding aircraft over a region</a>
-  <a href="#analyze">5. Going further with Python</a>
-  <a href="#limits">6. What this tool cannot tell you</a>
-  <a href="#faq">7. Questions</a>
+  <a href="#ends">4. Where a flight began and ended</a>
+  <a href="#area">5. Finding aircraft over a region</a>
+  <a href="#analyze">6. Going further with Python</a>
+  <a href="#limits">7. What this tool cannot tell you</a>
+  <a href="#faq">8. Questions</a>
 </nav>
 
 <h2 id="idea">1. What this data is, and is not</h2>
@@ -234,7 +235,46 @@ it for you.</p>
   envelope as a boundary on the possible, not as evidence of a route.</p>
 </div>
 
-<h2 id="area">4. Finding aircraft over a region</h2>
+<h2 id="ends">4. Where a flight began and ended</h2>
+<p>Under each aircraft you will find two cards describing the ends of the
+track. They are the closest this tool comes to naming an origin and a
+destination, and the distinction they draw is deliberate.</p>
+
+<div class="callout">
+  <div class="hd">Observed, not inferred</div>
+  <p><strong>Green means the aircraft was actually on the ground there.</strong>
+  The track begins or ends at ground level, so a receiver watched it sitting on
+  the surface, and the nearest airfield within 6 km is named. That is an
+  observation, not a guess.</p>
+</div>
+
+<div class="callout warn">
+  <div class="hd">The other case</div>
+  <p><strong>Grey means the track begins or ends in the air.</strong> All you
+  know is where the aircraft entered or left receiver range. It was flying
+  before, and it kept flying after. The card reports the altitude, whether it
+  was climbing or descending, and the nearest airfield as context only.</p>
+</div>
+
+<p>That context line is where your judgement comes in, and it is worth an
+example. A track that ends at 425 ft, three kilometres from a runway, still
+reads <em>destination not observed</em>. That is technically correct: nobody
+watched it touch down, and it could have gone around. But an aircraft
+descending through 425 ft that close to a runway is landing, and any reader can
+draw that conclusion. The tool gives you the altitude, the trend and the
+distance, and leaves the inference to you rather than making it silently.</p>
+
+<p>The same aircraft's first card might read <em>first heard airborne at 9,625
+ft, climbing, 8 km from Alexandria International</em>. Again, it almost
+certainly departed there, and again the tool declines to write that down for
+you. The rule throughout is that observations and inferences never share a
+sentence.</p>
+
+<p>On the map, the same distinction is drawn as <strong>filled dots for
+positions observed on the ground</strong> and <strong>hollow dots where a track
+merely entered or left coverage</strong>.</p>
+
+<h2 id="area">5. Finding aircraft over a region</h2>
 <p>The <strong>Area</strong> tab answers a different question: not where one
 aircraft went, but which aircraft were seen over a region on a given day. This
 is how new leads surface, by narrowing a wide search down to a few candidates
@@ -244,19 +284,57 @@ worth examining one by one.</p>
   <li><p>Choose an <strong>indexed day</strong>. These are days the nightly job
   has already summarised.</p></li>
   <li><p>Pan and zoom the map until it frames the region you care about.</p></li>
-  <li><p>Optionally filter by registration or minimum altitude, then select
-  <strong>Search this map view</strong>. Filtering runs on your own machine and
-  returns immediately.</p></li>
+  <li><p>Narrow with the filters below, then select <strong>Search this map
+  view</strong>. Filtering runs on your own machine and returns immediately.</p></li>
   <li><p>Select any result to pull that aircraft's full track for the day,
   which switches you to the Trace tab with everything filled in.</p></li>
 </ol>
+
+<h3>The filters, and what each one is for</h3>
+<p>A busy region can return thousands of aircraft, nearly all of them airliners
+crossing overhead. These filters exist to strip that away.</p>
+
+<table>
+  <tr><th>Filter</th><th>What it finds</th></tr>
+  <tr><td><strong>Presence in view</strong></td>
+      <td>Set to <em>stayed entirely in the view</em>, this drops every aircraft
+      that was merely passing through, leaving only those whose whole day
+      happened inside your frame. Usually the single biggest cut.</td></tr>
+  <tr><td><strong>Ceiling</strong></td>
+      <td>The highest altitude an aircraft reached that day. A low maximum
+      excludes cruising airliners and leaves local flying.</td></tr>
+  <tr><td><strong>Active from / to</strong></td>
+      <td>The hours during which it was heard. Useful for isolating activity at
+      night, or around a known event.</td></tr>
+  <tr><td><strong>Max range</strong></td>
+      <td>How far apart the furthest two points of its day were. A small figure
+      means the aircraft circled rather than travelled, which is the signature
+      of survey, training and surveillance patterns.</td></tr>
+  <tr><td><strong>Registration</strong></td>
+      <td>Whether the ICAO address falls in the United States range. Exact and
+      free, unlike anything about the route.</td></tr>
+</table>
+
+<p>Combining a low ceiling with a short range over a single region is an
+effective way to surface aircraft that spent the day orbiting rather than going
+anywhere.</p>
+
+<h3>Drawing the flight paths</h3>
+<p>Once a search returns 40 aircraft or fewer, a <strong>Draw flight
+paths</strong> button appears. Each path is fetched individually, which is why
+it is a deliberate step rather than something that happens automatically.</p>
+
+<p>The shapes are the point. Racetrack orbits, repeated circuits and survey
+grids are obvious as lines and invisible as dots. Hover any path for the
+registration, type and how the track began and ended; select one to open its
+full record.</p>
 
 <p>Results are coloured by what the ICAO address reveals about registration:
 red for United States registration, grey where the country has not been
 resolved. The registration country is exact and free, read straight from the
 aircraft's address, unlike anything about its route.</p>
 
-<h2 id="analyze">5. Going further with Python</h2>
+<h2 id="analyze">6. Going further with Python</h2>
 <p>When the built-in views run out, the <strong>Analyze</strong> tab gives you
 a full Python data environment running inside your browser. Nothing is
 installed, no account is needed, and nothing you load or type is uploaded
@@ -285,7 +363,7 @@ anywhere.</p>
 <code>reg_country</code>, the four corners of where each aircraft was seen,
 <code>max_alt_ft</code> and <code>positions</code>.</p>
 
-<h2 id="limits">6. What this tool cannot tell you</h2>
+<h2 id="limits">7. What this tool cannot tell you</h2>
 <ul class="plain">
   <li><strong>Where a flight was going.</strong> Never shown, never inferred.</li>
   <li><strong>Who or what was aboard.</strong> The broadcast carries position
@@ -298,7 +376,7 @@ anywhere.</p>
   either direction.</li>
 </ul>
 
-<h2 id="faq">7. Questions</h2>
+<h2 id="faq">8. Questions</h2>
 
 <h3>How far back can I search?</h3>
 <p>The upstream archive keeps roughly the last month of the current year plus
