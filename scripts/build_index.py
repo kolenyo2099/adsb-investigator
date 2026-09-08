@@ -21,7 +21,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from scan_area import fetch_hour, parse_records, reg_country
+from heatmap import fetch_hour, parse_records, reg_country
 
 ROOT = Path(__file__).resolve().parent.parent
 DAILY = ROOT / "data" / "daily"

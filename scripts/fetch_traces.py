@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
-"""Fetch adsb.lol traces for watchlisted aircraft and write gap reports.
+"""Fetch an aircraft's trace from adsb.lol and report its coverage gaps.
 
-Stdlib only. Run: python3 scripts/fetch_traces.py [YYYY-MM-DD ...]
-With no args, fetches yesterday (UTC).
+The same analysis the web app does, from the command line — useful for scripting
+or checking several aircraft at once. Stdlib only.
+
+Usage:
+  python3 scripts/fetch_traces.py N703KW 2026-08-27
+  python3 scripts/fetch_traces.py a960a9 N700KW 2026-08-27 2026-08-28
+  python3 scripts/fetch_traces.py N703KW 2026-08-27 --save
+
+Tail numbers are resolved via hexdb.io; six hex characters are used directly.
+Dates default to yesterday (UTC). --save also writes the full trace as JSON.
 """
 import gzip
 import json
@@ -14,7 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
-WATCHLIST_FILE = ROOT / "watchlist.txt"
+OUT_DIR_FLAG = "--save"
 USER_AGENT = "adsb-investigator (+https://github.com/kolenyo2099/adsb-investigator)"
 
 CRUISE_KMH = 850
@@ -55,20 +63,10 @@ def fetch_trace(hexid, day: date):
     return json.loads(raw)
 
 
-def haversine_km(lat1, lon1, lat2, lon2):
-    from math import radians, sin, cos, atan2, sqrt
-
-    r = 6371
-    dlat = radians(lat2 - lat1)
-    dlon = radians(lon2 - lon1)
-    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
-    return 2 * r * atan2(sqrt(a), sqrt(1 - a))
-
-
 def fetch_merged(hexid, day: date, lookback_days=2):
     """Fetch `day` plus a few preceding days and merge into one absolute-time
-    series. Traces are per-UTC-day, so a gap spanning midnight (like the
-    35h Eswatini gap in HANDOFF.md §7) is invisible in a single day's file.
+    series. Traces are per-UTC-day, so a gap spanning midnight is otherwise
+    invisible — it looks like two unrelated fragments.
     """
     merged = []
     doc_type = None
@@ -126,53 +124,55 @@ def gap_report(trace_doc):
     return gaps
 
 
-def load_watchlist():
-    if not WATCHLIST_FILE.exists():
-        return []
-    return [l.strip() for l in WATCHLIST_FILE.read_text().splitlines() if l.strip() and not l.startswith("#")]
-
-
 def main():
-    days = [date.fromisoformat(a) for a in sys.argv[1:]] or [date.today() - timedelta(days=1)]
-    regs = load_watchlist()
-    index = {}
-    index_path = DATA / "index.json"
-    if index_path.exists():
-        index = json.loads(index_path.read_text())
+    args = sys.argv[1:]
+    if not args:
+        print(__doc__)
+        sys.exit(1)
 
-    for reg in regs:
-        hexid = reg_to_hex(reg)
+    # Anything date-shaped is a date; everything else is an aircraft.
+    days, aircraft = [], []
+    for a in args:
+        try:
+            days.append(date.fromisoformat(a))
+        except ValueError:
+            aircraft.append(a)
+    if not days:
+        days = [date.today() - timedelta(days=1)]
+    if not aircraft:
+        print("No aircraft given.\n")
+        print(__doc__)
+        sys.exit(1)
+
+    aircraft = [a for a in aircraft if a != OUT_DIR_FLAG]
+    for item in aircraft:
+        hexid = item.lower() if len(item) == 6 and all(c in "0123456789abcdef" for c in item.lower()) else reg_to_hex(item)
         if hexid in (None, "n/a", ""):
-            print(f"skip {reg}: no hex from hexdb.io")
+            print(f"skip {item}: hexdb.io couldn't resolve it to an ICAO address")
             continue
         for day in days:
-            print(f"fetching {reg} ({hexid}) {day}")
             doc = fetch_merged(hexid, day)
             if doc is None:
-                print(f"  no trace (not tracked that day or the two before it)")
+                print(f"{item} ({hexid}) {day}: no trace — not tracked that day or the two before it")
                 continue
             day_end = datetime(day.year, day.month, day.day, 23, 59, 59, tzinfo=timezone.utc).timestamp()
             gaps = [g for g in gap_report(doc) if g["end_t"] <= day_end]
-            out_dir = DATA / "traces" / hexid.lower()
-            out_dir.mkdir(parents=True, exist_ok=True)
-            out = {
-                "reg": reg,
-                "hex": hexid.lower(),
-                "date": day.isoformat(),
-                "type": doc.get("t"),
-                "trace": doc.get("trace"),
-                "timestamp": doc.get("timestamp"),
-                "gaps": gaps,
-            }
-            (out_dir / f"{day.isoformat()}.json").write_text(json.dumps(out))
-            index.setdefault(hexid.lower(), {"reg": reg, "dates": []})
-            if day.isoformat() not in index[hexid.lower()]["dates"]:
-                index[hexid.lower()]["dates"].append(day.isoformat())
-                index[hexid.lower()]["dates"].sort()
+            airborne = [g for g in gaps if g["airborne"]]
+            print(f"{item} ({hexid}) {day}: {len(doc['trace'])} points, "
+                  f"{len(gaps)} gaps ({len(airborne)} airborne)")
+            for g in airborne:
+                mins = round(g["duration_s"] / 60)
+                widest = max(e["radius_km"] for e in g["reachable_envelope_km"])
+                print(f"    {mins} min from ({g['last_known_lat']:.2f}, {g['last_known_lon']:.2f}) "
+                      f"@ {g['last_known_alt']} ft — reachable within {widest} km")
 
-    DATA.mkdir(parents=True, exist_ok=True)
-    index_path.write_text(json.dumps(index, indent=2))
-    print(f"wrote index with {len(index)} aircraft")
+            if OUT_DIR_FLAG in args:
+                out_dir = DATA / "traces" / hexid
+                out_dir.mkdir(parents=True, exist_ok=True)
+                (out_dir / f"{day.isoformat()}.json").write_text(json.dumps(
+                    {"reg": item, "hex": hexid, "date": day.isoformat(), "type": doc.get("t"),
+                     "trace": doc.get("trace"), "timestamp": doc.get("timestamp"), "gaps": gaps}))
+                print(f"    saved {out_dir / (day.isoformat() + '.json')}")
 
 
 if __name__ == "__main__":

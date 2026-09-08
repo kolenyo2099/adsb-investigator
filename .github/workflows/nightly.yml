@@ -13,11 +13,6 @@ on:
         description: 'Space-separated YYYY-MM-DD dates to (re)build. Blank = yesterday.'
         required: false
         default: ''
-      skip_index:
-        description: 'Skip the full-day index (traces only) — much faster'
-        type: boolean
-        required: false
-        default: false
 
 permissions:
   contents: write
@@ -45,15 +40,11 @@ jobs:
             echo "list=$(date -u -d yesterday +%F)" >> "$GITHUB_OUTPUT"
           fi
 
-      # Full-fidelity traces for the aircraft we care about, so they survive
-      # past the upstream retention window.
-      - name: Fetch watchlisted traces
-        run: python3 scripts/fetch_traces.py ${{ steps.dates.outputs.list }}
-
       # Summary of every aircraft seen that day — the part a browser can't
-      # derive for itself, and what makes area discovery possible.
+      # derive for itself, and what makes area discovery possible. Individual
+      # traces need no archiving: their URLs are derivable from hex and date,
+      # so the app fetches them on demand.
       - name: Build daily index
-        if: ${{ inputs.skip_index != true }}
         run: python3 scripts/build_index.py ${{ steps.dates.outputs.list }}
 
       - name: Commit

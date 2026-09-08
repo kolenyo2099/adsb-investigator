@@ -1,212 +1,415 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ADS-B Investigator</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root { color-scheme: light dark; }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; display: flex; height: 100vh; }
-  #sidebar { width: 340px; padding: 12px; overflow-y: auto; border-right: 1px solid #8884; box-sizing: border-box; }
-  #map { flex: 1; }
-  select { width: 100%; padding: 6px; margin-bottom: 10px; }
-  h1 { font-size: 16px; margin: 0 0 12px; }
-  .gap { border: 1px solid #d33; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-size: 13px; }
-  .gap b { color: #d33; }
-  .gap.ground { border-color: #8886; opacity: .6; }
-  .gap.ground b { color: inherit; }
-  .envelope { font-size: 12px; opacity: .8; }
-  .note { font-size: 12px; opacity: .7; margin-top: 16px; }
-  #status { font-size: 13px; opacity: .8; }
-  .tabs { display: flex; margin-bottom: 12px; border: 1px solid #8884; border-radius: 6px; overflow: hidden; }
-  .tabs button { flex: 1; padding: 6px; border: none; background: transparent; cursor: pointer; font-size: 13px; }
-  .tabs button.active { background: #2266dd; color: #fff; }
-  [hidden] { display: none !important; }
-  .scan-row { font-size: 12px; padding: 2px 0; }
-  #pyCode { width: 100%; height: 140px; box-sizing: border-box; font-family: ui-monospace, monospace; font-size: 12px; }
-  #pyOut { white-space: pre-wrap; background: #0002; border-radius: 6px; padding: 8px; font-family: ui-monospace, monospace; font-size: 12px; max-height: 220px; overflow: auto; }
-  button.action { width: 100%; padding: 8px; margin: 6px 0; border: none; border-radius: 6px; background: #2266dd; color: #fff; cursor: pointer; }
-  button.action:disabled { opacity: .5; cursor: default; }
-  .fld { display: block; font-size: 12px; opacity: .8; margin-bottom: 8px; }
-  .fld input { width: 100%; padding: 6px; margin-top: 3px; box-sizing: border-box; font-size: 14px; }
-  details { margin: 10px 0; font-size: 13px; }
-  summary { cursor: pointer; opacity: .75; margin-bottom: 8px; }
+:root {
+  --bg:        #0a0e13;
+  --panel:     #111820;
+  --panel-2:   #161f29;
+  --line:      #223040;
+  --line-soft: #1a242f;
+  --fg:        #e6edf5;
+  --fg-dim:    #93a6bb;
+  --fg-faint:  #8497ac;
+  --accent:    #57a8ff;
+  --accent-dim:#2b6fb8;
+  --signal:    #ff5c5c;
+  --signal-dim:#6e2626;
+  --go:        #3fd68b;
+  --shadow:    0 2px 4px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+  --t1: 11px;   /* micro caps: labels, tags */
+  --t2: 13px;   /* secondary prose */
+  --t3: 15px;   /* body, inputs, controls */
+  --t4: 20px;   /* key data */
+  --t5: 26px;   /* the finding itself */
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: "IBM Plex Sans", -apple-system, system-ui, sans-serif;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg:        #eef1f5;
+  --panel:     #ffffff;
+  --panel-2:   #f4f7fa;
+  --line:      #cfd8e3;
+  --line-soft: #e2e8f0;
+  --fg:        #101822;
+  --fg-dim:    #4a5b70;
+  --fg-faint:  #55647a;
+  --accent:    #1667cc;
+  --accent-dim:#8fbdf0;
+  --signal:    #c62828;
+  --signal-dim:#f3c3c3;
+  --go:        #12805a;
+  --shadow:    0 1px 2px rgba(16,24,34,.08), 0 6px 20px rgba(16,24,34,.10);
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; display: flex; overflow: hidden;
+  background: var(--bg); color: var(--fg);
+  font-family: var(--sans); font-size: var(--t3); line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* ---------- sidebar ---------- */
+#sidebar {
+  width: 372px; flex: none; height: 100%;
+  display: flex; flex-direction: column;
+  background: var(--panel); border-right: 1px solid var(--line);
+  position: relative; z-index: 500;
+}
+header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 16px 18px 14px; border-bottom: 1px solid var(--line);
+}
+header h1 {
+  margin: 0; font-size: var(--t2); font-weight: 600;
+  letter-spacing: .14em; text-transform: uppercase; flex: 1;
+}
+header .mark { color: var(--accent); display: flex; }
+.icon-btn {
+  width: 30px; height: 30px; flex: none; display: grid; place-items: center;
+  background: none; border: 1px solid transparent; border-radius: 6px;
+  color: var(--fg-dim); cursor: pointer; transition: background .15s, color .15s, border-color .15s;
+}
+.icon-btn:hover { background: var(--panel-2); color: var(--fg); border-color: var(--line); }
+.icon-btn:focus-visible, a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
+/* ---------- tabs ---------- */
+.tabs { display: flex; padding: 10px 12px 0; gap: 2px; border-bottom: 1px solid var(--line); }
+.tabs button {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px 4px 10px; background: none; border: 0; cursor: pointer;
+  color: var(--fg-faint); font: 600 var(--t1)/1 var(--sans);
+  letter-spacing: .08em; text-transform: uppercase;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: color .15s, border-color .15s;
+}
+.tabs button:hover { color: var(--fg-dim); }
+.tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.tabs svg { width: 15px; height: 15px; flex: none; }
+
+.pane { flex: 1; overflow-y: auto; padding: 18px; scrollbar-width: thin; }
+.pane::-webkit-scrollbar { width: 10px; }
+.pane::-webkit-scrollbar-thumb { background: var(--line); border: 3px solid var(--panel); border-radius: 5px; }
+
+/* ---------- form ---------- */
+.field { display: block; margin-bottom: 12px; }
+.field > span {
+  display: block; margin-bottom: 5px;
+  font-size: var(--t1); font-weight: 600; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--fg-faint);
+}
+input[type="text"], input[type="password"], input[type="date"], input[type="number"], select {
+  width: 100%; padding: 9px 11px;
+  background: var(--bg); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 7px;
+  font: 500 var(--t3)/1.3 var(--mono);
+  transition: border-color .15s, box-shadow .15s;
+}
+select { font-family: var(--sans); font-weight: 400; }
+input:hover, select:hover { border-color: var(--fg-faint); }
+input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); outline: none; }
+input::placeholder { color: var(--fg-faint); }
+.row { display: flex; gap: 8px; }
+.row > * { flex: 1; min-width: 0; }
+
+button.primary {
+  width: 100%; padding: 10px 14px; margin-top: 2px;
+  background: var(--accent); color: #04121f;
+  border: 0; border-radius: 7px; cursor: pointer;
+  font: 600 var(--t3)/1 var(--sans); letter-spacing: .03em;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: filter .15s, transform .06s;
+}
+:root[data-theme="light"] button.primary { color: #fff; }
+button.primary:hover:not(:disabled) { filter: brightness(1.12); }
+button.primary:active:not(:disabled) { transform: translateY(1px); }
+button.primary:disabled { opacity: .45; cursor: default; }
+button.ghost {
+  width: 100%; padding: 9px 12px; background: var(--panel-2); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 7px; cursor: pointer;
+  font: 500 var(--t2)/1 var(--sans); transition: border-color .15s, background .15s;
+}
+button.ghost:hover { border-color: var(--fg-faint); }
+
+.spinner {
+  width: 13px; height: 13px; border: 2px solid currentColor; border-right-color: transparent;
+  border-radius: 50%; animation: spin .6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+details.tuck { margin-top: 14px; border-top: 1px solid var(--line-soft); padding-top: 12px; }
+details.tuck > summary {
+  cursor: pointer; list-style: none; color: var(--fg-faint);
+  font-size: var(--t1); font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+  display: flex; align-items: center; gap: 6px;
+}
+details.tuck > summary::-webkit-details-marker { display: none; }
+details.tuck > summary::before { content: "+"; font-family: var(--mono); }
+details.tuck[open] > summary::before { content: "−"; }
+details.tuck > summary:hover { color: var(--fg-dim); }
+details.tuck .body { padding-top: 12px; }
+
+/* ---------- status / results ---------- */
+.summary {
+  margin: 16px 0 4px; padding: 12px 14px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px;
+}
+.summary .id { font: 600 var(--t4)/1.2 var(--mono); letter-spacing: .01em; }
+.summary .sub { margin-top: 5px; font-size: var(--t2); color: var(--fg-dim); }
+.summary .stats { display: flex; gap: 16px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.summary .stats div { font-size: var(--t1); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); }
+.summary .stats b { display: block; margin-top: 3px; font: 600 var(--t4)/1.1 var(--mono); color: var(--fg); letter-spacing: 0; text-transform: none; }
+
+.gap {
+  border: 1px solid var(--signal-dim); border-radius: 9px;
+  padding: 12px 14px; margin-bottom: 9px; background: var(--panel-2);
+  animation: rise .34s cubic-bezier(.16,1,.3,1) backwards;
+}
+.gap.parked { border-color: var(--line); opacity: .72; }
+@keyframes rise { from { opacity: 0; transform: translateY(7px); } }
+@media (prefers-reduced-motion: reduce) { .gap { animation: none; } }
+
+.gap .head { display: flex; align-items: baseline; gap: 8px; }
+.gap .dur { font: 600 var(--t5)/1.1 var(--mono); color: var(--signal); letter-spacing: -.02em; }
+.gap.parked .dur { color: var(--fg-dim); font-weight: 400; font-size: var(--t4); }
+.gap .tag {
+  margin-left: auto; font-size: var(--t1); font-weight: 600; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--signal);
+  border: 1px solid var(--signal-dim); border-radius: 4px; padding: 2px 6px;
+}
+.gap.parked .tag { color: var(--fg-faint); border-color: var(--line); }
+.gap .where { margin-top: 7px; font-size: var(--t2); color: var(--fg-dim); }
+.gap .coord { font-family: var(--mono); color: var(--fg); }
+.env { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); }
+.env .cap { font-size: var(--t1); font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--fg-faint); margin-bottom: 5px; }
+.env table { width: 100%; border-collapse: collapse; }
+.env td { padding: 3px 0; font-size: var(--t2); color: var(--fg-dim); }
+.env td:last-child { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--fg); }
+
+.empty { padding: 26px 16px; text-align: center; color: var(--fg-faint); }
+.empty svg { width: 26px; height: 26px; margin-bottom: 10px; opacity: .5; }
+.empty p { margin: 0; font-size: var(--t2); line-height: 1.6; }
+.note { font-size: var(--t2); line-height: 1.6; color: var(--fg-faint); }
+.note code { font-family: var(--mono); color: var(--fg-dim); }
+.alert {
+  border: 1px solid var(--signal-dim); background: color-mix(in srgb, var(--signal) 9%, transparent);
+  border-radius: 8px; padding: 12px 14px; font-size: var(--t2); color: var(--fg); margin-top: 14px;
+}
+footer { padding: 12px 18px; border-top: 1px solid var(--line); }
+footer a { color: var(--fg-dim); font-size: var(--t2); text-decoration: none; }
+footer a:hover { color: var(--accent); }
+
+/* ---------- results list ---------- */
+.hits { margin-top: 12px; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.hits .hit {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 12px; background: var(--panel-2); border: 0; border-top: 1px solid var(--line-soft);
+  color: var(--fg); text-align: left; cursor: pointer; transition: background .12s;
+}
+.hits .hit:first-child { border-top: 0; }
+.hits .hit:hover { background: var(--panel); }
+.hits .hit .hex { font: 500 var(--t3)/1 var(--mono); }
+.hits .hit .meta { margin-left: auto; font: 400 var(--t1)/1 var(--mono); color: var(--fg-faint); }
+.hits .hit .flag {
+  font-size: var(--t1); font-weight: 600; letter-spacing: .07em; padding: 2px 6px;
+  border-radius: 4px; border: 1px solid var(--line); color: var(--fg-faint);
+}
+.hits .hit .flag.us { color: var(--signal); border-color: var(--signal-dim); }
+
+#pyCode {
+  width: 100%; height: 128px; padding: 11px; resize: vertical;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 7px;
+  font: 400 var(--t2)/1.6 var(--mono);
+}
+#pyCode:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+#pyOut {
+  margin: 12px 0 0; padding: 12px; overflow: auto; max-height: 300px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 7px;
+  font: 400 var(--t2)/1.55 var(--mono); color: var(--fg-dim); white-space: pre;
+}
+
+/* ---------- map ---------- */
+#map { flex: 1; height: 100%; background: var(--bg); }
+.leaflet-container { background: var(--bg); font-family: var(--sans); }
+.leaflet-control-zoom a {
+  background: var(--panel) !important; color: var(--fg) !important;
+  border-color: var(--line) !important;
+}
+.leaflet-control-zoom a:hover { background: var(--panel-2) !important; }
+.leaflet-control-attribution {
+  background: color-mix(in srgb, var(--panel) 88%, transparent) !important;
+  color: var(--fg-faint) !important; font-size: var(--t1) !important;
+}
+.leaflet-control-attribution a { color: var(--fg-dim) !important; }
+.leaflet-tooltip {
+  background: var(--panel); color: var(--fg); border: 1px solid var(--line);
+  box-shadow: var(--shadow); font-family: var(--mono); font-size: var(--t1);
+}
+.leaflet-tooltip::before { display: none; }
+
+@media (max-width: 800px) {
+  body { flex-direction: column; }
+  #sidebar { width: 100%; height: 58%; border-right: 0; border-bottom: 1px solid var(--line); }
+  #map { height: 42%; }
+}
 </style>
 </head>
 <body>
 <div id="sidebar">
-  <h1>ADS-B Investigator</h1>
-  <p style="margin:-6px 0 12px"><a href="tutorial.html" style="font-size:13px">How to use this tool →</a></p>
-  <div class="tabs">
-    <button id="tabTrace" class="active">Aircraft trace</button>
-    <button id="tabArea">Area scan</button>
-    <button id="tabPy">Analyze</button>
+  <header>
+    <span class="mark" aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l3-7 3 14 3-9 2 2h5"/></svg></span>
+    <h1>ADS-B Investigator</h1>
+    <button class="icon-btn" id="themeBtn" title="Switch theme" aria-label="Switch theme">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z"/></svg>
+    </button>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button id="tabTrace" role="tab" aria-selected="true" aria-controls="paneTrace">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18c5-1 8-4 10-8s4-6 8-7"/><circle cx="3" cy="18" r="1.6"/><circle cx="21" cy="3" r="1.6"/></svg>
+      Trace
+    </button>
+    <button id="tabArea" role="tab" aria-selected="false" aria-controls="paneArea">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="12" r="2.4"/></svg>
+      Area
+    </button>
+    <button id="tabPy" role="tab" aria-selected="false" aria-controls="paneAnalyze">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m5 7 4 4-4 4"/><path d="M12 17h7"/></svg>
+      Analyze
+    </button>
   </div>
 
-  <div id="paneTrace">
-    <label class="fld">Tail number or ICAO hex
-      <input id="tailInput" type="text" placeholder="N703KW or a960a9" autocomplete="off">
+  <!-- TRACE -->
+  <div class="pane" id="paneTrace" role="tabpanel">
+    <label class="field"><span>Tail number or ICAO hex</span>
+      <input id="tailInput" type="text" placeholder="N703KW" autocomplete="off" spellcheck="false">
     </label>
-    <label class="fld">Date
+    <label class="field"><span>Date (UTC)</span>
       <input id="dateInput" type="date">
     </label>
-    <button id="lookupBtn" class="action">Look up</button>
+    <button class="primary" id="lookupBtn">Look up aircraft</button>
 
-    <details id="authWrap">
+    <details class="tuck" id="authWrap">
       <summary>Access credentials</summary>
-      <label class="fld">Username
-        <input id="authUser" type="text" autocomplete="username">
-      </label>
-      <label class="fld">Password
-        <input id="authPass" type="password" autocomplete="current-password">
-      </label>
-      <label style="font-size:12px;opacity:.8"><input type="checkbox" id="authRemember" checked> Remember on this device</label>
-      <p class="note" style="margin-top:8px">Shared credentials for the lookup
-      service. Stored in this browser only — treat them as a shared team
-      password, not a personal login.</p>
+      <div class="body">
+        <label class="field"><span>Username</span><input id="authUser" type="text" autocomplete="username" spellcheck="false"></label>
+        <label class="field"><span>Password</span><input id="authPass" type="password" autocomplete="current-password"></label>
+        <label style="display:flex;gap:7px;align-items:center;font-size:var(--t2);color:var(--fg-dim)">
+          <input type="checkbox" id="authRemember" checked style="width:auto"> Remember on this device
+        </label>
+        <p class="note" style="margin:9px 0 0">Shared credentials for the lookup service, kept in this browser only. Treat them as a team password, not a personal login.</p>
+      </div>
     </details>
 
-    <details id="archiveWrap">
-      <summary>or browse archived aircraft</summary>
-      <select id="aircraftSelect"><option>Loading index…</option></select>
-      <select id="dateSelect" disabled><option>Select aircraft first</option></select>
-    </details>
-
-    <div id="status"></div>
-    <div id="gaps"></div>
-    <p class="note">Gaps are the finding, not an inferred destination. Envelope
-    radii assume 850 km/h cruise and 0–2h ground stops.</p>
+    <div id="traceOut"></div>
   </div>
 
-  <div id="paneArea" hidden>
-    <select id="scanSelect"><option>Loading scans…</option></select>
-    <div id="scanStatus"></div>
-    <div id="scanList"></div>
-    <p class="note">Scans are precomputed offline (scripts/scan_area.py) —
-    the browser can't reach adsb.lol's heatmap files directly (no CORS).
-    Red = US-registered; grey = registration country not yet resolved.</p>
+  <!-- AREA -->
+  <div class="pane" id="paneArea" role="tabpanel" hidden>
+    <label class="field"><span>Indexed day</span>
+      <select id="daySelect"><option>Loading…</option></select>
+    </label>
+    <div class="row">
+      <label class="field"><span>Registration</span>
+        <select id="regFilter">
+          <option value="">Any</option>
+          <option value="US">US-registered</option>
+          <option value="unknown">Not resolved</option>
+        </select>
+      </label>
+      <label class="field"><span>Min altitude (ft)</span>
+        <input id="altFilter" type="number" min="0" step="1000" placeholder="0">
+      </label>
+    </div>
+    <button class="primary" id="searchAreaBtn">Search this map view</button>
+    <p class="note" style="margin-top:9px">Pan and zoom the map to frame your region, then search. Every aircraft seen that day is already loaded — filtering happens instantly, on your machine.</p>
+    <div id="areaOut"></div>
   </div>
 
-  <div id="paneAnalyze" hidden>
-    <p class="note" style="margin-top:0">Loads the trace or scan you last viewed
-    into a pandas DataFrame called <code>df</code>, in-browser (Pyodide,
-    ~10&nbsp;MB, loaded on demand). Nothing leaves your machine.</p>
-    <button id="pyLoadBtn" class="action">Load Python (Pyodide)</button>
-    <textarea id="pyCode" hidden>df.describe()</textarea>
-    <button id="pyRunBtn" class="action" hidden>Run</button>
-    <pre id="pyOut"></pre>
+  <!-- ANALYZE -->
+  <div class="pane" id="paneAnalyze" role="tabpanel" hidden>
+    <p class="note">Loads whatever you last viewed into a pandas DataFrame called <code>df</code>, running entirely in this browser. Nothing is uploaded.</p>
+    <button class="primary" id="pyLoadBtn" style="margin-top:14px">Load Python</button>
+    <textarea id="pyCode" hidden spellcheck="false">df.describe()</textarea>
+    <button class="primary" id="pyRunBtn" hidden>Run</button>
+    <pre id="pyOut" hidden></pre>
   </div>
+
+  <footer><a href="tutorial.html">How to use this tool →</a></footer>
 </div>
 <div id="map"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
-// Set this to your deployed Worker URL to enable live lookup of any aircraft.
-// Empty string = live lookup disabled, archived data only.
+// Deployed Worker URL enables live lookup of any aircraft. Empty = disabled.
 const PROXY = '';
 
-const GAP_THRESHOLD_S = 20 * 60;  // shorter gaps are routine dropout, not a finding
+const GAP_THRESHOLD_S = 20 * 60;   // shorter gaps are routine dropout, not a finding
 const CRUISE_KMH = 850;
 const STOP_ASSUMPTIONS_H = [0, 0.5, 1, 2];
+const MAX_MARKERS = 800;           // beyond this the map stops being readable anyway
 
-const map = L.map('map').setView([15, 10], 3);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap contributors', maxZoom: 12
-}).addTo(map);
+const $ = id => document.getElementById(id);
+const fmt = n => n.toLocaleString('en-US');
 
-let trackLayer = L.layerGroup().addTo(map);
-let index = {};
-let lastLoaded = null; // { kind: 'trace'|'scan', records: [...] }
-
-const aircraftSelect = document.getElementById('aircraftSelect');
-const dateSelect = document.getElementById('dateSelect');
-const status = document.getElementById('status');
-const gapsEl = document.getElementById('gaps');
-
-fetch('data/index.json').then(r => r.ok ? r.json() : {}).then(idx => {
-  index = idx;
-  const hexes = Object.keys(index);
-  if (!hexes.length) {
-    aircraftSelect.innerHTML = '<option>No data yet — run scripts/fetch_traces.py</option>';
-    return;
-  }
-  aircraftSelect.innerHTML = hexes.map(h => `<option value="${h}">${index[h].reg} (${h})</option>`).join('');
-  aircraftSelect.dispatchEvent(new Event('change'));
-}).catch(() => { aircraftSelect.innerHTML = '<option>No data yet</option>'; });
-
-aircraftSelect.addEventListener('change', () => {
-  const hex = aircraftSelect.value;
-  const dates = (index[hex] && index[hex].dates) || [];
-  dateSelect.disabled = !dates.length;
-  dateSelect.innerHTML = dates.map(d => `<option value="${d}">${d}</option>`).join('');
-  if (dates.length) dateSelect.dispatchEvent(new Event('change'));
+/* ---------------- theme ---------------- */
+const root = document.documentElement;
+try { const t = localStorage.getItem('adsb_theme'); if (t) root.dataset.theme = t; } catch {}
+$('themeBtn').addEventListener('click', () => {
+  root.dataset.theme = root.dataset.theme === 'light' ? 'dark' : 'light';
+  try { localStorage.setItem('adsb_theme', root.dataset.theme); } catch {}
+  setBasemap();
 });
 
-function renderTrace(doc, label) {
-  trackLayer.clearLayers();
-  const pts = (doc.trace || []).map(p => [p[1], p[2]]);
-  if (pts.length) {
-    const line = L.polyline(pts, { color: '#2266dd', weight: 3 }).addTo(trackLayer);
-    map.fitBounds(line.getBounds(), { maxZoom: 8 });
-    L.circleMarker(pts[0], { color: 'green', radius: 6 }).bindTooltip('start').addTo(trackLayer);
-    L.circleMarker(pts[pts.length - 1], { color: 'black', radius: 6 }).bindTooltip('end').addTo(trackLayer);
-  }
-  status.textContent = `${label} — ${pts.length} points, ${(doc.gaps || []).length} coverage gap(s)`;
-  lastLoaded = { kind: 'trace', records: (doc.trace || []).map(p => ({ t: p[0], lat: p[1], lon: p[2], alt: p[3], gs: p[4] })) };
+/* ---------------- map ---------------- */
+const map = L.map('map', { preferCanvas: true, zoomControl: true }).setView([20, 0], 3);
 
-  const gaps = doc.gaps || [];
-  // `airborne` is absent in older archived files; fall back to reading the altitude.
-  const isAirborne = g => g.airborne !== undefined ? g.airborne : g.last_known_alt !== 'ground';
-  const airborneCount = gaps.filter(isAirborne).length;
+// Esri's Gray Canvas: keyless, and deliberately desaturated so overlaid data
+// carries the colour. Base and place-name labels ship as separate layers.
+const ESRI = 'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_{v}_Base/MapServer/tile/{z}/{y}/{x}';
+const ESRI_REF = 'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_{v}_Reference/MapServer/tile/{z}/{y}/{x}';
+let tiles = [];
+function setBasemap() {
+  tiles.forEach(t => map.removeLayer(t));
+  const v = root.dataset.theme === 'light' ? 'Light_Gray' : 'Dark_Gray';
+  const opts = { maxZoom: 12, attribution: 'Tiles &copy; Esri &middot; &copy; OpenStreetMap contributors' };
+  tiles = [
+    L.tileLayer(ESRI.replace('{v}', v), opts).addTo(map),
+    L.tileLayer(ESRI_REF.replace('{v}', v), { ...opts, attribution: '' }).addTo(map),
+  ];
+  tiles.forEach(t => t.bringToBack());
+  tiles[0].bringToBack();
+}
+setBasemap();
+const layer = L.layerGroup().addTo(map);
+let lastLoaded = null;
 
-  gapsEl.innerHTML = gaps.map(g => {
-    const mins = Math.round(g.duration_s / 60);
-    const alt = g.last_known_alt === 'ground' ? 'on the ground' : `${g.last_known_alt} ft`;
-    const where = `(${g.last_known_lat.toFixed(2)}, ${g.last_known_lon.toFixed(2)}) ${alt}`;
-    if (!isAirborne(g)) {
-      return `<div class="gap ground">
-        <b>${mins} min</b> parked at ${where}
-        <div class="envelope">Landed and stopped transmitting — routine.</div>
-      </div>`;
-    }
-    const env = g.reachable_envelope_km.map(e => `${e.assumed_stop_h}h stop → ${e.radius_km} km`).join(' · ');
-    return `<div class="gap">
-      <b>${mins} min gap</b> from ${where}
-      <div class="envelope">Left coverage while still airborne. Reachable envelope: ${env}</div>
-    </div>`;
-  }).join('') || '<p class="note">No coverage gaps ≥20 min this day.</p>';
-
-  if (gaps.length && !airborneCount) {
-    gapsEl.insertAdjacentHTML('afterbegin',
-      '<p class="note" style="margin-top:0">All gaps are on the ground — nothing left coverage mid-flight.</p>');
-  }
-
-  // Only airborne gaps get a reachable circle. Drawing one around a parked
-  // aircraft would imply a journey that plainly didn't happen.
-  gaps.filter(isAirborne).forEach(g => {
-    const maxKm = Math.max(...g.reachable_envelope_km.map(e => e.radius_km));
-    if (maxKm > 0) {
-      L.circle([g.last_known_lat, g.last_known_lon], {
-        radius: maxKm * 1000, color: '#d33', fillOpacity: 0.05, dashArray: '4 4'
-      }).addTo(trackLayer);
-    }
+/* ---------------- tabs ---------------- */
+const TABS = [['tabTrace','paneTrace'], ['tabArea','paneArea'], ['tabPy','paneAnalyze']];
+function setTab(id) {
+  TABS.forEach(([btn, pane]) => {
+    const on = btn === id;
+    $(btn).setAttribute('aria-selected', String(on));
+    $(pane).hidden = !on;
   });
 }
+TABS.forEach(([btn]) => $(btn).addEventListener('click', () => setTab(btn)));
 
-dateSelect.addEventListener('change', async () => {
-  const hex = aircraftSelect.value;
-  const day = dateSelect.value;
-  if (!hex || !day) return;
-  status.textContent = 'Loading trace…';
-  gapsEl.innerHTML = '';
-  const doc = await fetch(`data/traces/${hex}/${day}.json`).then(r => r.json());
-  renderTrace(doc, `${doc.reg} — ${day}`);
-});
-
-// --- Live lookup: any aircraft, any date (needs PROXY) ---
-
-// Same rules as the nightly job, so live and archived results agree.
+/* ---------------- shared gap logic (mirrors scripts/) ---------------- */
 function computeGaps(points) {
   const gaps = [];
   for (let i = 1; i < points.length; i++) {
@@ -214,14 +417,12 @@ function computeGaps(points) {
     const dt = cur[0] - prev[0];
     if (dt < GAP_THRESHOLD_S) continue;
     const hours = dt / 3600;
-    // A track that stops at ground level is a parked aircraft — routine. A track
-    // that stops at altitude means it flew out of coverage still flying, which is
-    // the case worth looking at.
-    const airborne = prev[3] !== 'ground';
     gaps.push({
       start_t: prev[0], end_t: cur[0], duration_s: dt,
       last_known_lat: prev[1], last_known_lon: prev[2], last_known_alt: prev[3],
-      airborne,
+      // Ending at ground level is a parked aircraft. Ending at altitude means it
+      // left coverage still flying — the case worth looking at.
+      airborne: prev[3] !== 'ground',
       reachable_envelope_km: STOP_ASSUMPTIONS_H.map(stop => ({
         assumed_stop_h: stop,
         radius_km: Math.round(Math.max(hours - stop, 0) / 2 * CRUISE_KMH),
@@ -231,30 +432,101 @@ function computeGaps(points) {
   return gaps;
 }
 
+const duration = s => {
+  const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+  return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
+};
+const stopLabel = h => h === 0 ? 'No ground stop' : h === 0.5 ? '30 min stop' : `${h} h stop`;
+
+/* ---------------- trace ---------------- */
+function renderTrace(doc) {
+  layer.clearLayers();
+  const pts = (doc.trace || []).map(p => [p[1], p[2]]);
+  if (pts.length) {
+    const line = L.polyline(pts, { color: getComputedStyle(root).getPropertyValue('--accent').trim(), weight: 2.5, opacity: .9 }).addTo(layer);
+    map.fitBounds(line.getBounds(), { maxZoom: 7, padding: [30, 30] });
+    L.circleMarker(pts[0], { radius: 5, color: getComputedStyle(root).getPropertyValue('--go').trim(), weight: 2, fillOpacity: .9 })
+      .bindTooltip('First seen').addTo(layer);
+    L.circleMarker(pts.at(-1), { radius: 5, color: getComputedStyle(root).getPropertyValue('--fg').trim(), weight: 2, fillOpacity: .9 })
+      .bindTooltip('Last seen').addTo(layer);
+  }
+  lastLoaded = { kind: 'trace', records: (doc.trace || []).map(p => ({ t: p[0], lat: p[1], lon: p[2], alt: p[3], gs: p[4] })) };
+
+  const gaps = doc.gaps || [];
+  const air = gaps.filter(g => g.airborne);
+  const signal = getComputedStyle(root).getPropertyValue('--signal').trim();
+
+  const cards = gaps.map((g, i) => {
+    const where = `<span class="coord">${g.last_known_lat.toFixed(4)}, ${g.last_known_lon.toFixed(4)}</span>`;
+    if (!g.airborne) {
+      return `<div class="parked gap" style="animation-delay:${i * 28}ms">
+        <div class="head"><span class="dur">${duration(g.duration_s)}</span><span class="tag">Parked</span></div>
+        <div class="where">On the ground at ${where} — landed and stopped transmitting.</div>
+      </div>`;
+    }
+    const rows = g.reachable_envelope_km.map(e =>
+      `<tr><td>${stopLabel(e.assumed_stop_h)}</td><td>${fmt(e.radius_km)} km</td></tr>`).join('');
+    return `<div class="gap" style="animation-delay:${i * 28}ms">
+      <div class="head"><span class="dur">${duration(g.duration_s)}</span><span class="tag">Unobserved</span></div>
+      <div class="where">Left coverage at <span class="coord">${fmt(g.last_known_alt)} ft</span>, over ${where}</div>
+      <div class="env"><div class="cap">Reachable before it reappeared</div><table>${rows}</table></div>
+    </div>`;
+  }).join('');
+
+  $('traceOut').innerHTML = `
+    <div class="summary">
+      <div class="id">${doc.reg || doc.hex}${doc.reg && doc.hex ? ` · ${doc.hex.toUpperCase()}` : ''}</div>
+      <div class="sub">${doc.type ? doc.type + ' · ' : ''}${doc.date}</div>
+      <div class="stats">
+        <div>Positions<b>${fmt(pts.length)}</b></div>
+        <div>Gaps<b>${gaps.length}</b></div>
+        <div>Airborne<b>${air.length}</b></div>
+      </div>
+    </div>
+    ${gaps.length ? cards : '<div class="empty"><p>No coverage gaps over 20 minutes on this day.</p></div>'}
+    ${gaps.length && !air.length ? '<p class="note">Every gap here is on the ground. Nothing left coverage mid-flight.</p>' : ''}
+    <p class="note" style="margin-top:14px">Reachable distances assume 850 km/h cruise. They describe what was possible, not what happened — and never a destination.</p>`;
+
+  // Only airborne gaps get a circle; drawing one around a parked aircraft would
+  // imply a journey that plainly didn't happen.
+  air.forEach(g => {
+    const km = Math.max(...g.reachable_envelope_km.map(e => e.radius_km));
+    // Stroke only: an aircraft with many gaps would otherwise stack a dozen
+    // translucent fills into an unreadable wash.
+    if (km > 0) L.circle([g.last_known_lat, g.last_known_lon],
+      { radius: km * 1000, color: signal, weight: 1, opacity: .5, fill: false, dashArray: '3 5' }).addTo(layer);
+  });
+}
+
 async function resolveHex(input) {
   const s = input.trim().replace(/\s+/g, '');
   if (/^[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase();
-  const res = await fetch(`https://hexdb.io/reg-hex?reg=${encodeURIComponent(s.toUpperCase())}`);
-  const hex = (await res.text()).trim();
-  if (!/^[0-9a-fA-F]{6}$/.test(hex)) throw new Error(`Couldn't resolve "${s}" to an aircraft. Check the tail number, or enter the 6-character ICAO hex directly.`);
+
+  let hex;
+  try {
+    const res = await fetch(`https://hexdb.io/reg-hex?reg=${encodeURIComponent(s.toUpperCase())}`);
+    hex = (await res.text()).trim();
+  } catch {
+    // fetch throws the same TypeError for an offline host and a blocked
+    // request, so don't pretend to know which.
+    throw new Error(`Couldn't reach the registration lookup to identify "${s}". Check your connection, or enter the six-character ICAO hex directly.`);
+  }
+  if (!/^[0-9a-fA-F]{6}$/.test(hex))
+    throw new Error(`No aircraft is registered as "${s.toUpperCase()}". Check the tail number, or enter the six-character ICAO hex instead.`);
   return hex.toLowerCase();
 }
 
-function shiftDate(iso, days) {
+const shiftDate = (iso, days) => {
   const d = new Date(iso + 'T00:00:00Z');
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
-}
+};
 
-const authUser = document.getElementById('authUser');
-const authPass = document.getElementById('authPass');
-const authRemember = document.getElementById('authRemember');
-const authWrap = document.getElementById('authWrap');
-
+const authUser = $('authUser'), authPass = $('authPass'), authRemember = $('authRemember');
 try {
   const saved = JSON.parse(localStorage.getItem('adsb_auth') || 'null');
   if (saved) { authUser.value = saved.u || ''; authPass.value = saved.p || ''; }
-} catch { /* private mode or blocked storage — just start empty */ }
+} catch {}
 
 function authHeader() {
   const u = authUser.value.trim(), p = authPass.value;
@@ -262,35 +534,32 @@ function authHeader() {
   try {
     if (authRemember.checked) localStorage.setItem('adsb_auth', JSON.stringify({ u, p }));
     else localStorage.removeItem('adsb_auth');
-  } catch { /* storage unavailable; credentials still work for this session */ }
+  } catch {}
   return 'Basic ' + btoa(`${u}:${p}`);
 }
 
-async function liveLookup(rawInput, day) {
-  if (!PROXY) throw new Error('Live lookup is not configured for this deployment. Use the archived aircraft list below.');
+async function liveLookup(raw, day) {
+  if (!PROXY) throw new Error('Live lookup is not configured for this deployment yet.');
   const auth = authHeader();
-  if (!auth) { authWrap.open = true; throw new Error('Enter the access credentials below to look up aircraft.'); }
-  const hex = await resolveHex(rawInput);
+  if (!auth) { $('authWrap').open = true; throw new Error('Enter the access credentials to look up aircraft.'); }
+  const hex = await resolveHex(raw);
 
-  // Traces are per-UTC-day, so a gap spanning midnight is invisible in a single
-  // day's file. Pull the two preceding days too and stitch them into one series.
+  // Traces are filed per UTC day, so a gap spanning midnight would otherwise be
+  // invisible. Pull the surrounding days and stitch them into one series.
   const days = [shiftDate(day, -2), shiftDate(day, -1), day];
-  const responses = await Promise.all(days.map(d =>
-    fetch(`${PROXY}/trace/${d}/${hex}`, { headers: { Authorization: auth } }).catch(() => null)
-  ));
+  const res = await Promise.all(days.map(d =>
+    fetch(`${PROXY}/trace/${d}/${hex}`, { headers: { Authorization: auth } }).catch(() => null)));
 
-  if (responses.some(r => r && r.status === 401)) {
-    authWrap.open = true;
-    throw new Error('Those credentials were rejected. Check the username and password below.');
+  if (res.some(r => r && r.status === 401)) {
+    $('authWrap').open = true;
+    throw new Error('Those credentials were rejected. Check the username and password.');
   }
-  if (responses.some(r => r && r.status === 503)) {
-    throw new Error('The lookup service has no credentials configured yet. Ask the maintainer to set them.');
-  }
+  if (res.some(r => r && r.status === 503))
+    throw new Error('The lookup service has no credentials configured. Ask the maintainer to set them.');
 
-  const docs = await Promise.all(responses.map(r => (r && r.ok) ? r.json().catch(() => null) : null));
-  if (docs.every(d => d === null)) {
-    throw new Error(`No ADS-B data for ${rawInput.toUpperCase()} (${hex}) on ${day} or the two days before it. The aircraft may not have flown, or flew outside receiver coverage.`);
-  }
+  const docs = await Promise.all(res.map(r => (r && r.ok) ? r.json().catch(() => null) : null));
+  if (docs.every(d => d === null))
+    throw new Error(`No ADS-B record for ${raw.toUpperCase()} (${hex}) on ${day}. It may not have flown, or flew where no receiver could hear it — those look identical from here.`);
 
   let merged = [], reg = null, type = null;
   docs.forEach(doc => {
@@ -302,129 +571,165 @@ async function liveLookup(rawInput, day) {
   merged.sort((a, b) => a[0] - b[0]);
 
   const dayEnd = Date.parse(day + 'T23:59:59Z') / 1000;
-  const gaps = computeGaps(merged).filter(g => g.end_t <= dayEnd);
-  return { reg: reg || hex, hex, type, date: day, trace: merged, gaps };
+  return { reg, hex, type, date: day, trace: merged, gaps: computeGaps(merged).filter(g => g.end_t <= dayEnd) };
 }
 
-const tailInput = document.getElementById('tailInput');
-const dateInput = document.getElementById('dateInput');
-const lookupBtn = document.getElementById('lookupBtn');
-dateInput.value = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+const lookupBtn = $('lookupBtn');
+$('dateInput').value = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
 
 async function doLookup() {
-  const raw = tailInput.value.trim();
-  if (!raw) { status.textContent = 'Enter a tail number or ICAO hex first.'; return; }
+  const raw = $('tailInput').value.trim();
+  if (!raw) { $('traceOut').innerHTML = '<div class="alert">Enter a tail number or ICAO hex first.</div>'; return; }
   lookupBtn.disabled = true;
-  status.textContent = 'Looking up…';
-  gapsEl.innerHTML = '';
+  lookupBtn.innerHTML = '<span class="spinner"></span>Searching';
+  $('traceOut').innerHTML = '';
   try {
-    const doc = await liveLookup(raw, dateInput.value);
-    renderTrace(doc, `${doc.reg} (${doc.hex}) — ${doc.date}`);
+    renderTrace(await liveLookup(raw, $('dateInput').value));
   } catch (err) {
-    status.textContent = '';
-    gapsEl.innerHTML = `<p class="note">${err.message}</p>`;
-    trackLayer.clearLayers();
+    layer.clearLayers();
+    $('traceOut').innerHTML = `<div class="alert">${err.message}</div>`;
   }
   lookupBtn.disabled = false;
+  lookupBtn.textContent = 'Look up aircraft';
 }
 lookupBtn.addEventListener('click', doLookup);
-tailInput.addEventListener('keydown', e => { if (e.key === 'Enter') doLookup(); });
+$('tailInput').addEventListener('keydown', e => { if (e.key === 'Enter') doLookup(); });
 
-// --- Area scan tab ---
-const tabTrace = document.getElementById('tabTrace');
-const tabArea = document.getElementById('tabArea');
-const tabPy = document.getElementById('tabPy');
-const paneTrace = document.getElementById('paneTrace');
-const paneArea = document.getElementById('paneArea');
-const paneAnalyze = document.getElementById('paneAnalyze');
-const scanSelect = document.getElementById('scanSelect');
-const scanStatus = document.getElementById('scanStatus');
-const scanList = document.getElementById('scanList');
+/* ---------------- area: served by the nightly daily index ---------------- */
+const dayCache = new Map();
 
-function setTab(name) {
-  tabTrace.classList.toggle('active', name === 'trace');
-  tabArea.classList.toggle('active', name === 'area');
-  tabPy.classList.toggle('active', name === 'analyze');
-  paneTrace.hidden = name !== 'trace';
-  paneArea.hidden = name !== 'area';
-  paneAnalyze.hidden = name !== 'analyze';
-  if (name !== 'analyze') trackLayer.clearLayers();
+async function loadDay(date) {
+  if (dayCache.has(date)) return dayCache.get(date);
+  const res = await fetch(`data/daily/${date}.json.gz`);
+  if (!res.ok) throw new Error(`No index published for ${date}.`);
+  const buf = await res.arrayBuffer();
+  const head = new Uint8Array(buf.slice(0, 2));
+  // Check the magic bytes, not the extension: some hosts decompress .gz in
+  // transit and hand us plain JSON already.
+  const text = (head[0] === 0x1f && head[1] === 0x8b)
+    ? await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text()
+    : new TextDecoder().decode(buf);
+  const doc = JSON.parse(text);
+  dayCache.set(date, doc);
+  return doc;
 }
-tabTrace.addEventListener('click', () => setTab('trace'));
-tabArea.addEventListener('click', () => { setTab('area'); scanSelect.dispatchEvent(new Event('change')); });
-tabPy.addEventListener('click', () => setTab('analyze'));
 
-fetch('data/area_scans/index.json').then(r => r.ok ? r.json() : []).then(manifest => {
-  if (!manifest.length) {
-    scanSelect.innerHTML = '<option>No scans yet — run scripts/scan_area.py</option>';
+fetch('data/daily/index.json').then(r => r.ok ? r.json() : []).then(list => {
+  const sel = $('daySelect');
+  if (!list.length) {
+    sel.innerHTML = '<option value="">No indexed days yet</option>';
+    $('areaOut').innerHTML = '<div class="empty"><p>The nightly job has not published a day yet. Once it runs, every aircraft seen that day becomes searchable here.</p></div>';
     return;
   }
-  scanSelect.innerHTML = manifest.map(m =>
-    `<option value="${m.file}">${m.date} — bbox [${m.bbox.join(', ')}] (${m.count})</option>`
-  ).join('');
-}).catch(() => { scanSelect.innerHTML = '<option>No scans yet</option>'; });
+  sel.innerHTML = list.map(d => `<option value="${d.date}">${d.date} — ${fmt(d.count)} aircraft</option>`).join('');
+}).catch(() => { $('daySelect').innerHTML = '<option value="">Index unavailable</option>'; });
 
-scanSelect.addEventListener('change', async () => {
-  const file = scanSelect.value;
-  if (!file || file.startsWith('No ')) return;
-  scanStatus.textContent = 'Loading scan…';
-  trackLayer.clearLayers();
-  const doc = await fetch(`data/area_scans/${file}`).then(r => r.json());
-  const aircraft = doc.aircraft || [];
-  scanStatus.textContent = `${doc.date} — ${aircraft.length} distinct aircraft in bbox, hours [${doc.hours_scanned.join(',')}]`;
-  lastLoaded = { kind: 'scan', records: aircraft };
-  scanList.innerHTML = aircraft.map(a =>
-    `<div class="scan-row">${a.hex} — ${a.reg_country} — (${a.lat.toFixed(2)}, ${a.lon.toFixed(2)}) @ ${a.alt_ft} ft, hr${a.first_hour}</div>`
-  ).join('');
-  const b = doc.bbox;
-  L.rectangle([[b.min_lat, b.min_lon], [b.max_lat, b.max_lon]], { color: '#888', weight: 1, fillOpacity: 0.03 }).addTo(trackLayer);
-  aircraft.forEach(a => {
-    L.circleMarker([a.lat, a.lon], {
-      radius: 5, color: a.reg_country === 'US' ? '#d33' : '#888'
-    }).bindTooltip(`${a.hex} (${a.reg_country}) @ ${a.alt_ft}ft`).addTo(trackLayer);
-  });
-  if (aircraft.length) map.fitBounds([[b.min_lat, b.min_lon], [b.max_lat, b.max_lon]]);
+$('searchAreaBtn').addEventListener('click', async () => {
+  const date = $('daySelect').value;
+  if (!date) return;
+  const btn = $('searchAreaBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Filtering';
+  try {
+    const doc = await loadDay(date);
+    const b = map.getBounds();
+    const minAlt = Number($('altFilter').value) || 0;
+    const reg = $('regFilter').value;
+
+    // Rows are [hex, minLat, minLon, maxLat, maxLon, firstHr, lastHr, maxAlt, positions, regCountry]
+    const hits = doc.aircraft.filter(a =>
+      a[3] >= b.getSouth() && a[1] <= b.getNorth() &&
+      a[4] >= b.getWest()  && a[2] <= b.getEast() &&
+      a[7] >= minAlt && (!reg || a[9] === reg));
+
+    layer.clearLayers();
+    L.rectangle(b, { color: getComputedStyle(root).getPropertyValue('--fg-faint').trim(), weight: 1, dashArray: '3 4', fillOpacity: 0 }).addTo(layer);
+
+    const signal = getComputedStyle(root).getPropertyValue('--signal').trim();
+    const dim = getComputedStyle(root).getPropertyValue('--fg-faint').trim();
+    hits.slice(0, MAX_MARKERS).forEach(a => {
+      L.circleMarker([(a[1] + a[3]) / 2, (a[2] + a[4]) / 2], {
+        radius: 3.5, weight: 1.5, opacity: .85, fillOpacity: .35,
+        color: a[9] === 'US' ? signal : dim,
+      }).bindTooltip(`${a[0].toUpperCase()} · ${fmt(a[7])} ft · ${a[8]} positions`).addTo(layer);
+    });
+
+    lastLoaded = { kind: 'area', records: hits.map(a => ({
+      hex: a[0], min_lat: a[1], min_lon: a[2], max_lat: a[3], max_lon: a[4],
+      first_hour: a[5], last_hour: a[6], max_alt_ft: a[7], positions: a[8], reg_country: a[9] })) };
+
+    if (!hits.length) {
+      $('areaOut').innerHTML = `<div class="empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <p>No aircraft recorded in this view on ${date}.<br>Large parts of the world have no receiver coverage at all — that is a finding in itself, not an error.</p></div>`;
+      return;
+    }
+
+    const rows = hits.slice(0, 200).map(a => `
+      <button class="hit" data-hex="${a[0]}">
+        <span class="hex">${a[0].toUpperCase()}</span>
+        <span class="flag ${a[9] === 'US' ? 'us' : ''}">${a[9] === 'US' ? 'US' : '—'}</span>
+        <span class="meta">${fmt(a[7])} ft · ${String(a[5]).padStart(2, '0')}–${String(a[6]).padStart(2, '0')}h</span>
+      </button>`).join('');
+
+    $('areaOut').innerHTML = `
+      <div class="summary">
+        <div class="id">${fmt(hits.length)} aircraft</div>
+        <div class="sub">in view on ${date}${hits.length > MAX_MARKERS ? ` · first ${fmt(MAX_MARKERS)} mapped` : ''}</div>
+      </div>
+      <div class="hits">${rows}</div>
+      ${hits.length > 200 ? `<p class="note" style="margin-top:10px">Showing the first 200. Zoom in, or filter by altitude, to narrow it.</p>` : ''}
+      <p class="note" style="margin-top:12px">Select any aircraft to pull its full track for that day.</p>`;
+
+    $('areaOut').querySelectorAll('.hit').forEach(el => el.addEventListener('click', () => {
+      $('tailInput').value = el.dataset.hex;
+      $('dateInput').value = date;
+      setTab('tabTrace');
+      doLookup();
+    }));
+  } catch (err) {
+    $('areaOut').innerHTML = `<div class="alert">${err.message}</div>`;
+  }
+  btn.disabled = false;
+  btn.textContent = 'Search this map view';
 });
 
-// --- Analyze tab (Pyodide, loaded on demand — not on page load) ---
-const pyLoadBtn = document.getElementById('pyLoadBtn');
-const pyRunBtn = document.getElementById('pyRunBtn');
-const pyCode = document.getElementById('pyCode');
-const pyOut = document.getElementById('pyOut');
+/* ---------------- analyze ---------------- */
 let pyodide = null;
-
-pyLoadBtn.addEventListener('click', async () => {
+$('pyLoadBtn').addEventListener('click', async () => {
   if (!lastLoaded) {
-    pyOut.textContent = 'Load an aircraft trace or an area scan first (other tabs), then come back here.';
+    $('pyOut').hidden = false;
+    $('pyOut').textContent = 'Load an aircraft trace or run an area search first, then come back.';
     return;
   }
-  pyLoadBtn.disabled = true;
-  pyLoadBtn.textContent = 'Loading Pyodide + pandas…';
-  const script = document.createElement('script');
-  script.src = 'https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js';
-  document.head.appendChild(script);
-  await new Promise((resolve, reject) => { script.onload = resolve; script.onerror = reject; });
+  const btn = $('pyLoadBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Loading Python';
+  const s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js';
+  document.head.appendChild(s);
+  await new Promise((ok, no) => { s.onload = ok; s.onerror = no; });
   pyodide = await loadPyodide();
   await pyodide.loadPackage('pandas');
   pyodide.globals.set('_records', pyodide.toPy(lastLoaded.records));
   await pyodide.runPythonAsync('import pandas as pd\ndf = pd.DataFrame(_records)');
-  pyLoadBtn.hidden = true;
-  pyCode.hidden = false;
-  pyRunBtn.hidden = false;
-  pyOut.textContent = `Ready — df has ${lastLoaded.records.length} rows from your last-viewed ${lastLoaded.kind}. Try df.head(), df.describe(), or df.sort_values('alt' in df.columns and 'alt' or 'alt_ft').`;
+  btn.hidden = true;
+  $('pyCode').hidden = false; $('pyRunBtn').hidden = false; $('pyOut').hidden = false;
+  $('pyOut').textContent = `df ready — ${fmt(lastLoaded.records.length)} rows from the ${lastLoaded.kind} you last viewed.\nColumns: ${Object.keys(lastLoaded.records[0] || {}).join(', ')}`;
 });
 
-pyRunBtn.addEventListener('click', async () => {
+$('pyRunBtn').addEventListener('click', async () => {
   if (!pyodide) return;
-  pyRunBtn.disabled = true;
+  const btn = $('pyRunBtn');
+  btn.disabled = true;
   try {
-    let result = await pyodide.runPythonAsync(pyCode.value);
-    if (result && result.toString) result = result.toString();
-    pyOut.textContent = result === undefined ? '(no output — assign the last line to a bare expression to see it)' : String(result);
+    let out = await pyodide.runPythonAsync($('pyCode').value);
+    if (out && out.toString) out = out.toString();
+    $('pyOut').textContent = out === undefined ? '(no output — end with a bare expression to see a value)' : String(out);
   } catch (err) {
-    pyOut.textContent = 'Error: ' + err.message;
+    $('pyOut').textContent = String(err.message).split('\n').slice(-6).join('\n');
   }
-  pyRunBtn.disabled = false;
+  btn.disabled = false;
 });
 </script>
 </body>

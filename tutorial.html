@@ -1,267 +1,340 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ADS-B Investigator — Tutorial</title>
+<title>ADS-B Investigator — Field guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root { color-scheme: light dark; }
-  body { margin: 0 auto; max-width: 760px; padding: 32px 20px 80px; font-family: -apple-system, system-ui, sans-serif; line-height: 1.55; }
-  h1 { font-size: 28px; margin-bottom: 4px; }
-  h2 { margin-top: 44px; border-bottom: 1px solid #8884; padding-bottom: 6px; }
-  h3 { margin-top: 28px; }
-  .lede { opacity: .8; font-size: 16px; }
-  .callout { border-left: 4px solid #2266dd; background: #2266dd14; padding: 10px 16px; border-radius: 0 6px 6px 0; margin: 16px 0; }
-  .warn { border-left-color: #d33; background: #d3331014; }
-  code, pre { font-family: ui-monospace, monospace; }
-  code { background: #8882; padding: 1px 5px; border-radius: 4px; }
-  pre { background: #8882; padding: 12px; border-radius: 8px; overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
-  th, td { border: 1px solid #8884; padding: 6px 10px; text-align: left; }
-  .toc { background: #8881; border-radius: 8px; padding: 16px 20px; }
-  .toc a { display: block; padding: 3px 0; }
-  a { color: #2266dd; }
-  .step { display: flex; gap: 12px; margin: 14px 0; }
-  .step .n { flex: none; width: 26px; height: 26px; border-radius: 50%; background: #2266dd; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; }
-  .top-link { font-size: 14px; }
+:root {
+  --bg:#0a0e13; --panel:#111820; --panel-2:#161f29;
+  --line:#223040; --line-soft:#1a242f;
+  --fg:#e6edf5; --fg-dim:#93a6bb; --fg-faint:#8497ac;
+  --accent:#57a8ff; --signal:#ff5c5c; --signal-dim:#6e2626; --go:#3fd68b;
+  --t1:11px; --t2:13px; --t3:16px; --t4:22px; --t5:34px;
+  --mono:"IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --sans:"IBM Plex Sans", -apple-system, system-ui, sans-serif;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg:#eef1f5; --panel:#fff; --panel-2:#f4f7fa;
+  --line:#cfd8e3; --line-soft:#e2e8f0;
+  --fg:#101822; --fg-dim:#4a5b70; --fg-faint:#55647a;
+  --accent:#1667cc; --signal:#c62828; --signal-dim:#f3c3c3; --go:#12805a;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 400 var(--t3)/1.65 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.bar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 10px;
+  padding: 13px 22px; background: color-mix(in srgb, var(--panel) 92%, transparent);
+  backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
+}
+.bar .mark { color: var(--accent); display: flex; }
+.bar b { font-size: var(--t2); font-weight: 600; letter-spacing: .14em; text-transform: uppercase; flex: 1; }
+.bar a { color: var(--fg-dim); font-size: var(--t2); text-decoration: none; }
+.bar a:hover { color: var(--accent); }
+.icon-btn {
+  width: 30px; height: 30px; display: grid; place-items: center; background: none;
+  border: 1px solid transparent; border-radius: 6px; color: var(--fg-dim); cursor: pointer;
+}
+.icon-btn:hover { background: var(--panel-2); border-color: var(--line); color: var(--fg); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.wrap { max-width: 720px; margin: 0 auto; padding: 44px 22px 100px; }
+h1 { font-size: var(--t5); line-height: 1.15; letter-spacing: -.025em; margin: 0 0 14px; text-wrap: balance; }
+.lede { font-size: var(--t4); line-height: 1.45; color: var(--fg-dim); margin: 0 0 40px; text-wrap: pretty; }
+h2 {
+  font-size: var(--t4); letter-spacing: -.015em; margin: 56px 0 14px;
+  padding-top: 22px; border-top: 1px solid var(--line);
+}
+h3 { font-size: var(--t3); margin: 30px 0 8px; }
+p { margin: 0 0 15px; text-wrap: pretty; }
+a { color: var(--accent); }
+code {
+  font: 500 .88em var(--mono); background: var(--panel-2);
+  border: 1px solid var(--line-soft); border-radius: 5px; padding: 1px 5px;
+}
+
+.toc { background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 18px 22px; margin-bottom: 12px; }
+.toc div { font-size: var(--t1); font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--fg-faint); margin-bottom: 10px; }
+.toc a { display: block; padding: 5px 0; text-decoration: none; color: var(--fg-dim); font-size: var(--t2); }
+.toc a:hover { color: var(--accent); }
+
+.callout {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 11px; padding: 17px 20px; margin: 22px 0;
+}
+.callout.warn { border-color: var(--signal-dim); }
+.callout p { margin: 0; font-size: var(--t2); line-height: 1.6; color: var(--fg-dim); }
+.callout strong { color: var(--fg); }
+.callout .hd {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+  font-size: var(--t1); font-weight: 600; letter-spacing: .09em; text-transform: uppercase;
+}
+.callout .hd { color: var(--accent); }
+.callout.warn .hd { color: var(--signal); }
+
+ol.steps { list-style: none; counter-reset: s; padding: 0; margin: 22px 0; }
+ol.steps li { counter-increment: s; display: flex; gap: 14px; padding: 11px 0; border-top: 1px solid var(--line-soft); }
+ol.steps li:first-child { border-top: 0; }
+ol.steps li::before {
+  content: counter(s); flex: none; width: 25px; height: 25px; border-radius: 50%;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--accent);
+  display: grid; place-items: center; font: 600 var(--t1)/1 var(--mono);
+}
+ol.steps p { margin: 0; font-size: var(--t2); line-height: 1.6; color: var(--fg-dim); }
+ol.steps strong { color: var(--fg); }
+
+table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+th, td { text-align: left; padding: 11px 14px; border: 1px solid var(--line); font-size: var(--t2); vertical-align: top; }
+th { background: var(--panel-2); font-size: var(--t1); font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); }
+td { color: var(--fg-dim); }
+td code { font-size: .85em; }
+
+pre {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+  padding: 15px 18px; overflow-x: auto; font: 400 var(--t2)/1.6 var(--mono); color: var(--fg-dim);
+}
+pre b { color: var(--signal); font-weight: 600; }
+ul.plain { padding-left: 20px; }
+ul.plain li { margin-bottom: 10px; font-size: var(--t2); color: var(--fg-dim); }
+ul.plain strong { color: var(--fg); }
+footer { border-top: 1px solid var(--line); margin-top: 60px; padding-top: 20px; font-size: var(--t2); color: var(--fg-faint); }
 </style>
 </head>
 <body>
 
-<p class="top-link"><a href="index.html">← Back to the app</a></p>
-<h1>ADS-B Investigator</h1>
-<p class="lede">A field guide for reporters, researchers, and anyone else who wants
-to see where an aircraft has flown — and where the record goes dark.</p>
-
-<div class="toc">
-  <strong>Contents</strong>
-  <a href="#idea">1. The core idea (read this first)</a>
-  <a href="#trace">2. Looking up one aircraft</a>
-  <a href="#gaps">3. Reading a gap report</a>
-  <a href="#area">4. Finding aircraft in a region</a>
-  <a href="#analyze">5. Digging deeper with the Analyze tab</a>
-  <a href="#limits">6. What this tool can't tell you</a>
-  <a href="#faq">7. Frequently asked questions</a>
+<div class="bar">
+  <span class="mark" aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l3-7 3 14 3-9 2 2h5"/></svg></span>
+  <b>Field guide</b>
+  <a href="index.html">Open the tool</a>
+  <button class="icon-btn" id="themeBtn" aria-label="Switch theme">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z"/></svg>
+  </button>
 </div>
 
-<h2 id="idea">1. The core idea (read this first)</h2>
-<p>This tool reads <strong>ADS-B</strong> data — the position reports aircraft
-broadcast in flight, picked up by a global network of volunteer ground
-receivers. It is not radar, and it is not a flight plan. Two things follow
-from that, and everything else in this guide builds on them:</p>
+<div class="wrap">
+<h1>Reading the flight record, and its silences</h1>
+<p class="lede">A guide for reporters and researchers who want to know where an
+aircraft has been, and what it means when the record goes quiet.</p>
+
+<nav class="toc">
+  <div>Contents</div>
+  <a href="#idea">1. What this data is, and is not</a>
+  <a href="#trace">2. Following one aircraft</a>
+  <a href="#gaps">3. Reading a gap report</a>
+  <a href="#area">4. Finding aircraft over a region</a>
+  <a href="#analyze">5. Going further with Python</a>
+  <a href="#limits">6. What this tool cannot tell you</a>
+  <a href="#faq">7. Questions</a>
+</nav>
+
+<h2 id="idea">1. What this data is, and is not</h2>
+<p>Aircraft broadcast their position continuously, and a global network of
+volunteers runs the ground receivers that listen. This tool reads that record.
+It is not radar, and it carries no flight plan. Two consequences follow, and
+everything else here rests on them.</p>
 
 <div class="callout">
-  <strong>There is no "destination" in the data.</strong> An aircraft's ADS-B
-  signal simply stops when it flies out of range of every receiver, and
-  starts again when it comes back into range — even if it never landed. This
-  tool never guesses where a plane went during a gap. It shows you the gap,
-  where the aircraft was last seen, and the outer limit of how far it could
-  plausibly have travelled before reappearing.
+  <div class="hd">The first thing to understand</div>
+  <p><strong>The data contains no destination.</strong> An aircraft's signal
+  stops when it flies beyond the last receiver that can hear it, and resumes
+  when it comes back within range. It may never have landed in between. This
+  tool will not guess where a flight went. It shows you the silence, where the
+  aircraft was last heard, and the furthest it could plausibly have travelled
+  before reappearing.</p>
 </div>
 
 <div class="callout warn">
-  <strong>No signal doesn't mean no flight.</strong> Ground-receiver coverage
-  is dense over North America, Europe, and much of Asia — and thin to
-  nonexistent across large parts of Africa, the open ocean, and other
-  sparsely populated regions. A long gap over a place with no coverage tells
-  you nothing was watching, not that nothing happened.
+  <div class="hd">The second thing to understand</div>
+  <p><strong>Silence is not absence.</strong> Receiver coverage is dense across
+  North America, Europe and much of Asia. It thins to nothing over large parts
+  of Africa, the open oceans, and other sparsely populated regions. A long
+  silence above a place with no receivers tells you only that nobody was
+  listening.</p>
 </div>
 
-<p>Everything the tool shows you is either a directly observed fact (a
-position, an altitude, a timestamp) or an honestly-labelled inference with
-its assumptions stated (the reachable-distance circles in a gap report). If
-you ever see the tool imply a specific destination — that's a bug, not a
-feature. Please report it.</p>
+<p>Everything on screen is either something a receiver directly observed, such
+as a position, an altitude or a timestamp, or a clearly labelled inference with
+its assumptions written next to it. If the tool ever appears to name a
+destination, that is a defect worth reporting.</p>
 
-<h2 id="trace">2. Looking up one aircraft</h2>
-<p>The <strong>Aircraft trace</strong> tab is the starting point. It shows the
-flight path of one tail number on one day.</p>
+<h2 id="trace">2. Following one aircraft</h2>
+<p>The <strong>Trace</strong> tab shows one aircraft's path across one day.</p>
 
-<div class="step"><div class="n">1</div><div>
-  Type a <strong>tail number</strong> (like <code>N703KW</code>) or a
-  six-character <strong>ICAO hex code</strong> (like <code>a960a9</code>) into
-  the first box. Any aircraft works — there's no preset list to pick from.
-</div></div>
-<div class="step"><div class="n">2</div><div>
-  Choose a date and click <strong>Look up</strong>. If nothing comes back,
-  that means the aircraft either didn't fly that day or flew entirely outside
-  receiver coverage — the app will say so rather than showing you an empty map.
-</div></div>
-<div class="step"><div class="n">3</div><div>
-  The map draws the flight path: a green dot for the first position seen,
-  a black dot for the last, and a blue line connecting every point between.
-</div></div>
+<ol class="steps">
+  <li><p>Type a <strong>tail number</strong> such as <code>N703KW</code>, or a
+  six-character <strong>ICAO hex code</strong> such as <code>a960a9</code>.
+  Any aircraft works. There is no preset list.</p></li>
+  <li><p>Pick a date and select <strong>Look up aircraft</strong>. If nothing
+  comes back, the aircraft either did not fly or flew where no receiver could
+  hear it. The tool says so rather than showing an empty map.</p></li>
+  <li><p>The map draws the path: a green dot where it was first heard, a pale
+  dot where it was last heard, and a line through every position between.</p></li>
+</ol>
 
 <div class="callout">
-  <strong>Why it also loads the two previous days.</strong> The underlying data
-  is filed one calendar day at a time, so a flight that crosses midnight would
-  otherwise appear to be two unrelated fragments — and a gap spanning midnight
-  would be invisible entirely. The app quietly stitches the surrounding days
-  together so long gaps are measured correctly.
+  <div class="hd">Why it loads three days</div>
+  <p>The archive files one calendar day at a time. A flight crossing midnight
+  would otherwise appear as two unrelated fragments, and a silence spanning
+  midnight would vanish entirely. The tool quietly stitches the surrounding
+  days together so long gaps are measured correctly.</p>
 </div>
 
-<p>Below the controls, the sidebar lists every <strong>coverage gap</strong>
-in the track — any stretch of 20 minutes or more with no position reports.
-See the next section for how to read those.</p>
-
-<p>There's also a collapsed <em>"browse archived aircraft"</em> list, which
-holds aircraft whose data has been saved into the project directly. It's a
-convenience shortcut, not a limit on what you can search.</p>
-
 <h2 id="gaps">3. Reading a gap report</h2>
-<p>Not all gaps mean the same thing, so the app sorts them into two kinds —
-and this distinction is the single most useful thing on the screen.</p>
+<p>Gaps are not all alike, and telling them apart is the most useful thing on
+the screen.</p>
 
 <table>
-  <tr><th>Greyed out — "parked"</th><th>Red — "left coverage while still airborne"</th></tr>
+  <tr>
+    <th>Dimmed, marked "parked"</th>
+    <th>Red, marked "unobserved"</th>
+  </tr>
   <tr>
     <td>The track ended at ground level. The aircraft landed and switched off.
-    Completely routine — most gaps are these.</td>
-    <td>The track ended <em>at altitude</em>. The aircraft flew out of receiver
-    range while still flying, and reappeared somewhere else later. This is the
-    kind worth investigating.</td>
+    Entirely routine, and most gaps are these.</td>
+    <td>The track ended <strong>at altitude</strong>. The aircraft flew out of
+    range while still flying, and surfaced somewhere else later. This is the
+    kind worth your attention.</td>
   </tr>
 </table>
 
-<p>Only airborne gaps get a reachable envelope and a circle on the map — drawing
-one around a parked aircraft would imply a journey that plainly didn't happen.</p>
+<p>Only unobserved gaps get a reachable envelope and a circle on the map.
+Drawing one around a parked aircraft would imply a journey that plainly did not
+happen.</p>
 
-<p>An airborne gap card shows how long the aircraft was unseen, where it was
-last observed (position and altitude), and a <strong>reachable envelope</strong>
-— how far it could have travelled in that time under a few different
-assumptions.</p>
+<pre><b>5h 30m</b>  UNOBSERVED
+Left coverage at 35,000 ft, over 37.2810, -70.2660
 
-<pre>1431 min gap from (32.66, -92.87) @ 19075 ft
-Reachable envelope: 0h stop → 10137 km · 0.5h stop → 9924 km
-                      1h stop → 9712 km · 2h stop → 9287 km</pre>
+REACHABLE BEFORE IT REAPPEARED
+No ground stop                            2,334 km
+30 min stop                               2,122 km
+1 h stop                                  1,909 km
+2 h stop                                  1,484 km</pre>
 
-<p>Read that as: <em>the aircraft was last seen at this position and altitude,
-then vanished from ADS-B coverage for 1,431 minutes (23.8 hours). If it flew
-the whole time at typical cruise speed, it could be up to 10,137 km from that
-point. If it also sat on the ground somewhere for up to two hours mid-gap,
-that shrinks to as little as 9,287 km.</em> The true answer is somewhere in
-that range — the tool won't pick a point for you, and neither should you,
-without other evidence.</p>
-
-<div class="callout">
-  <strong>Use the envelope to rule places out, not in.</strong> The most
-  reliable way to use a gap report is negatively: a reachable radius of 700
-  km rules out a city 2,000 km away. It does not, by itself, confirm the
-  aircraft visited any specific place within the circle.
-</div>
-
-<p>On the map, each gap is drawn as a dashed red circle centered on the last
-known position, sized to the largest (most generous) radius in its
-envelope.</p>
-
-<h2 id="area">4. Finding aircraft in a region</h2>
-<p>The <strong>Area scan</strong> tab answers a different question: not "where
-did this one aircraft go," but "what aircraft were seen in this region on
-this day, at all." This is how new leads get found — for instance, narrowing
-a wide search area down to a handful of candidate aircraft before digging
-into each one with the Aircraft trace tab.</p>
+<p>Read that as: the aircraft was last heard at that position and altitude,
+then went unheard for five and a half hours. Flying the whole time at typical
+cruise speed, it could be anywhere within 2,334 km of that point. Had it also
+sat on the ground for two hours, the reachable area shrinks to 1,484 km. The
+truth lies somewhere in that range, and the tool will not pick a point inside
+it for you.</p>
 
 <div class="callout">
-  Area scans are <strong>precomputed</strong> and only cover the regions and
-  dates someone has already run a scan for — the list in the dropdown is
-  everything currently available. If the region or date you need isn't
-  there, ask whoever maintains this tool's data to run one (see §7).
+  <div class="hd">How to use the envelope honestly</div>
+  <p><strong>It rules places out, not in.</strong> A reachable radius of 700 km
+  excludes a city 2,000 km away, and that exclusion is solid. It never confirms
+  the aircraft visited any particular place inside the circle. Treat the
+  envelope as a boundary on the possible, not as evidence of a route.</p>
 </div>
 
-<p>Each result on the map is a dot for one aircraft, colored by what's known
-about its registration: <span style="color:#d33">red</span> for aircraft
-registered in the United States (identifiable for free from the aircraft's
-ICAO identifier), <span style="opacity:.6">grey</span> for aircraft whose
-registration country hasn't been resolved yet. The list in the sidebar gives
-the same information as text, plus the exact position, altitude, and which
-hour of the day each aircraft was first seen in the scan.</p>
+<h2 id="area">4. Finding aircraft over a region</h2>
+<p>The <strong>Area</strong> tab answers a different question: not where one
+aircraft went, but which aircraft were seen over a region on a given day. This
+is how new leads surface, by narrowing a wide search down to a few candidates
+worth examining one by one.</p>
 
-<h2 id="analyze">5. Digging deeper with the Analyze tab</h2>
-<p>If dropdowns and gap cards aren't enough — say, you want to filter, sort,
-or chart the data yourself — the <strong>Analyze</strong> tab gives you a
-real Python data-analysis environment, running entirely in your browser. No
-installation, no account, and nothing you type or load ever leaves your
-computer.</p>
+<ol class="steps">
+  <li><p>Choose an <strong>indexed day</strong>. These are days the nightly job
+  has already summarised.</p></li>
+  <li><p>Pan and zoom the map until it frames the region you care about.</p></li>
+  <li><p>Optionally filter by registration or minimum altitude, then select
+  <strong>Search this map view</strong>. Filtering runs on your own machine and
+  returns immediately.</p></li>
+  <li><p>Select any result to pull that aircraft's full track for the day,
+  which switches you to the Trace tab with everything filled in.</p></li>
+</ol>
 
-<div class="step"><div class="n">1</div><div>
-  First, load something to analyze: view an aircraft trace or an area scan
-  in the other tabs. Whatever you looked at last is what gets loaded.
-</div></div>
-<div class="step"><div class="n">2</div><div>
-  Switch to the Analyze tab and click <strong>Load Python</strong>. This
-  downloads a small Python environment (about 10 MB) — it only happens once
-  per visit, and only if you ask for it.
-</div></div>
-<div class="step"><div class="n">3</div><div>
-  Once it's ready, your data is sitting in a variable called <code>df</code>
-  — standard for a "DataFrame" in the pandas library, which is the standard
-  tool for this kind of data work in Python. Type an expression in the box
-  and click <strong>Run</strong>.
-</div></div>
+<p>Results are coloured by what the ICAO address reveals about registration:
+red for United States registration, grey where the country has not been
+resolved. The registration country is exact and free, read straight from the
+aircraft's address, unlike anything about its route.</p>
 
-<p>A few starting points, if Python is new to you:</p>
+<h2 id="analyze">5. Going further with Python</h2>
+<p>When the built-in views run out, the <strong>Analyze</strong> tab gives you
+a full Python data environment running inside your browser. Nothing is
+installed, no account is needed, and nothing you load or type is uploaded
+anywhere.</p>
+
+<ol class="steps">
+  <li><p>View a trace or run an area search first. Whatever you looked at last
+  is what gets loaded.</p></li>
+  <li><p>Select <strong>Load Python</strong>. About 10 MB downloads once per
+  visit, and only when you ask for it.</p></li>
+  <li><p>Your data waits in a variable called <code>df</code>, a pandas
+  DataFrame. Type an expression and select <strong>Run</strong>.</p></li>
+</ol>
+
 <table>
-  <tr><th>Type this</th><th>To see</th></tr>
-  <tr><td><code>df.head()</code></td><td>The first few rows, so you can see what columns exist</td></tr>
-  <tr><td><code>df.describe()</code></td><td>Quick statistics — min, max, average — for every numeric column</td></tr>
-  <tr><td><code>df.sort_values('alt')</code></td><td>Every row sorted by altitude, lowest first</td></tr>
-  <tr><td><code>df[df['gs'] &lt; 50]</code></td><td>Only the rows where ground speed is under 50 knots — useful for spotting where a plane slowed down or was taxiing</td></tr>
-  <tr><td><code>len(df)</code></td><td>How many rows (position reports, or aircraft) are in the data</td></tr>
+  <tr><th>Expression</th><th>What it shows</th></tr>
+  <tr><td><code>df.head()</code></td><td>The first rows, so you can see which columns exist</td></tr>
+  <tr><td><code>df.describe()</code></td><td>Minimum, maximum and average for every numeric column</td></tr>
+  <tr><td><code>df.sort_values('alt')</code></td><td>Every row by altitude, lowest first</td></tr>
+  <tr><td><code>df[df['gs'] &lt; 50]</code></td><td>Rows under 50 knots, useful for spotting where an aircraft slowed or taxied</td></tr>
+  <tr><td><code>len(df)</code></td><td>How many rows you are working with</td></tr>
 </table>
 
-<p>A trace's columns are <code>t</code> (timestamp), <code>lat</code>,
-<code>lon</code>, <code>alt</code> (feet), and <code>gs</code> (ground speed
-in knots). An area scan's columns include <code>hex</code>, <code>reg_country</code>,
-<code>lat</code>, <code>lon</code>, <code>alt_ft</code>, and <code>gs_kt</code>.</p>
+<p>A trace carries <code>t</code>, <code>lat</code>, <code>lon</code>,
+<code>alt</code> and <code>gs</code>. An area search carries <code>hex</code>,
+<code>reg_country</code>, the four corners of where each aircraft was seen,
+<code>max_alt_ft</code> and <code>positions</code>.</p>
 
-<h2 id="limits">6. What this tool can't tell you</h2>
-<ul>
-  <li><strong>Destination.</strong> Never shown, never inferred. See §1.</li>
-  <li><strong>Passengers, cargo, or purpose of flight.</strong> ADS-B carries
-  only position and identification data — nothing about what or who is
-  aboard.</li>
-  <li><strong>Certainty during a gap.</strong> The reachable-envelope circles
-  are physics, not evidence — they describe what's <em>possible</em>, not
-  what happened.</li>
-  <li><strong>Aircraft not on the watchlist, outside a scanned area, or
-  flying without ADS-B.</strong> Some aircraft — often military or state
-  aircraft — don't broadcast at all, or broadcast without a public
-  identifier. Their absence from this tool proves nothing either way.</li>
+<h2 id="limits">6. What this tool cannot tell you</h2>
+<ul class="plain">
+  <li><strong>Where a flight was going.</strong> Never shown, never inferred.</li>
+  <li><strong>Who or what was aboard.</strong> The broadcast carries position
+  and identity, and nothing about passengers or cargo.</li>
+  <li><strong>What happened during a silence.</strong> The envelope is physics
+  rather than evidence. It describes what was possible.</li>
+  <li><strong>Anything about aircraft that do not broadcast.</strong> Some
+  aircraft, often military or state operated, transmit nothing at all or
+  transmit without a public identity. Their absence here proves nothing in
+  either direction.</li>
 </ul>
 
-<h2 id="faq">7. Frequently asked questions</h2>
+<h2 id="faq">7. Questions</h2>
 
 <h3>How far back can I search?</h3>
-<p>The underlying archive keeps roughly the last month of the current year,
-plus complete past years. That means there can be a hole between the two — for
-recent months of the current year, data may not be retrievable on demand even
-though the flight happened. If a date in that window matters to your story,
-ask the maintainer: it's recoverable from a bulk archive, but not instantly.</p>
+<p>The upstream archive keeps roughly the last month of the current year plus
+complete past years, which can leave a hole between the two. For recent months
+of this year, a flight may be unreachable on demand even though it happened.
+If such a date matters to your story, ask whoever maintains this tool. The data
+is recoverable from bulk archives, though not instantly.</p>
 
-<h3>I searched a tail number and got nothing. Does that mean it didn't fly?</h3>
-<p>No — and this is the most important misreading to avoid. It means no
-receiver logged it. The aircraft may have flown somewhere with no coverage,
-flown without broadcasting, or not flown at all. The three look identical
-from here. Check a date you know it flew to confirm the tail number resolves
-correctly before drawing any conclusion from an empty result.</p>
-
-<h3>Can I get area coverage for a new region or date?</h3>
-<p>Area scans take real time and bandwidth to generate, so they're run
-on request rather than for the whole world continuously. Ask the maintainer
-for the date range and bounding box you need.</p>
+<h3>I searched a tail number and found nothing. Did it not fly?</h3>
+<p>Unknown, and this is the most important misreading to avoid. An empty result
+means no receiver logged the aircraft. It may have flown beyond coverage, flown
+without broadcasting, or not flown at all. All three look identical from here.
+Before concluding anything, check a date you know it flew, to confirm the tail
+number resolves correctly.</p>
 
 <h3>Is this data authoritative?</h3>
-<p>It's sourced from a public, volunteer-run ADS-B receiver network, released
-under a public-domain (CC0) license. Treat it the way you'd treat any single
-source: strong for what it directly shows (a plane was here, at this time,
-at this altitude), and it should be corroborated, like any single source,
-before it anchors a claim on its own.</p>
+<p>It comes from a public, volunteer-run receiver network and is released into
+the public domain. Treat it as you would any single source: strong evidence for
+what it directly records, and worth corroborating before it carries a claim on
+its own.</p>
 
-<h3>Why can't the app just show live flights?</h3>
-<p>By design, this tool only ever shows historical data that's already been
-fetched and saved — not a live feed. That keeps it lightweight, reproducible,
-and gentle on the volunteer infrastructure the underlying data comes from.</p>
+<h3>Why does it not show live flights?</h3>
+<p>By design it reads only historical records that have already been published.
+That keeps the tool light, keeps results reproducible months later, and stays
+gentle on the volunteer infrastructure the data comes from.</p>
 
-<p style="margin-top:56px; opacity:.6; font-size:13px;">Questions or a bug to report? Open an issue on the project's GitHub repository.</p>
+<footer>Found a problem, or want a date backfilled? Open an issue on the project repository.</footer>
+</div>
+
+<script>
+const root = document.documentElement;
+try { const t = localStorage.getItem('adsb_theme'); if (t) root.dataset.theme = t; } catch {}
+document.getElementById('themeBtn').addEventListener('click', () => {
+  root.dataset.theme = root.dataset.theme === 'light' ? 'dark' : 'light';
+  try { localStorage.setItem('adsb_theme', root.dataset.theme); } catch {}
+});
+</script>
 </body>
 </html>
