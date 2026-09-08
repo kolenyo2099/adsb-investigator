@@ -227,6 +227,17 @@ footer a { color: var(--fg-dim); font-size: var(--t2); text-decoration: none; }
 footer a:hover { color: var(--accent); }
 
 /* ---------- results list ---------- */
+.fgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
+.tally {
+  display: flex; align-items: baseline; gap: 8px; margin: 14px 0 10px;
+  padding: 10px 12px; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 9px;
+}
+.tally b { font: 600 var(--t4)/1 var(--mono); }
+.tally span { font-size: var(--t2); color: var(--fg-dim); }
+.tally.none b { color: var(--fg-faint); }
+.tally.drawable b { color: var(--go); }
+
 .hits { margin-top: 12px; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
 .hits .hit {
   display: flex; align-items: center; gap: 10px; width: 100%;
@@ -372,42 +383,63 @@ footer a:hover { color: var(--accent); }
     <label class="field"><span>Indexed day</span>
       <select id="daySelect"><option>Loading…</option></select>
     </label>
-    <label class="field"><span>Presence in view</span>
-      <select id="scopeFilter">
-        <option value="touch">Passed through the view</option>
-        <option value="within">Stayed entirely in the view all day</option>
-      </select>
+    <label class="field"><span>Airfield touched</span>
+      <input id="apFilter" type="text" placeholder="GOBD, DKR or Dakar" autocomplete="off" spellcheck="false">
     </label>
-    <div class="row">
-      <label class="field"><span>Ceiling min (ft)</span>
+    <div class="fgrid">
+      <label class="field"><span>Presence</span>
+        <select id="scopeFilter">
+          <option value="touch">Passed through view</option>
+          <option value="within">Whole day in view</option>
+        </select>
+      </label>
+      <label class="field"><span>Flights</span>
+        <select id="legFilter">
+          <option value="">Any</option>
+          <option value="1">Single flight</option>
+          <option value="2">2 to 4</option>
+          <option value="5">5 or more</option>
+        </select>
+      </label>
+      <label class="field"><span>Ceiling min</span>
         <input id="altMin" type="number" min="0" step="1000" placeholder="any">
       </label>
-      <label class="field"><span>Ceiling max (ft)</span>
+      <label class="field"><span>Ceiling max</span>
         <input id="altMax" type="number" min="0" step="1000" placeholder="any">
       </label>
-    </div>
-    <div class="row">
       <label class="field"><span>Active from</span>
         <select id="hourFrom"></select>
       </label>
       <label class="field"><span>Active to</span>
         <select id="hourTo"></select>
       </label>
-    </div>
-    <div class="row">
+      <label class="field"><span>Max range km</span>
+        <input id="spanMax" type="number" min="0" step="50" placeholder="any">
+      </label>
       <label class="field"><span>Registration</span>
         <select id="regFilter">
           <option value="">Any</option>
-          <option value="US">US-registered</option>
+          <option value="US">US</option>
           <option value="unknown">Not resolved</option>
         </select>
       </label>
-      <label class="field"><span>Max range (km)</span>
-        <input id="spanMax" type="number" min="0" step="50" placeholder="any">
-      </label>
     </div>
-    <button class="primary" id="searchAreaBtn">Search this map view</button>
-    <p class="note" style="margin-top:9px">Frame your region on the map, then search. The whole day is already loaded, so filtering runs instantly on your machine. <strong>Stayed entirely in the view</strong> drops aircraft that were only passing overhead; a small <strong>max range</strong> finds aircraft that circled rather than travelled.</p>
+    <label class="field"><span>Where flights ended</span>
+      <select id="endFilter">
+        <option value="">Any</option>
+        <option value="named">Arrival identified</option>
+        <option value="unnamed">Arrival not observed</option>
+      </select>
+    </label>
+
+    <div class="tally"><b id="tallyN">—</b><span id="tallyT">choose a day to begin</span></div>
+    <div class="row">
+      <button class="primary" id="searchAreaBtn">Show on map</button>
+      <button class="ghost" id="resetBtn" style="width:auto;padding:10px 16px">Reset</button>
+    </div>
+    <p class="note" style="margin-top:9px">The count updates as you change
+    anything, including panning the map, so you can narrow until the number is
+    small enough to read before drawing.</p>
     <div id="areaOut"></div>
   </div>
 
@@ -435,6 +467,9 @@ const MAX_MARKERS = 800;   // beyond this the map stops being readable anyway
 const MAX_PATHS = 600;     // beyond this the map is a hairball, not a finding
 
 const $ = id => document.getElementById(id);
+// Bumped when a published data file changes shape, so browsers holding an old
+// copy do not silently keep using it.
+const DATA_V = '2';
 const cssVar = n => getComputedStyle(root).getPropertyValue(n).trim();
 const fmt = n => n.toLocaleString('en-US');
 
@@ -548,7 +583,7 @@ async function loadAirports() {
   if (AIRPORT_BY_ICAO) return AIRPORT_BY_ICAO;
   let list = [];
   try {
-    const res = await fetch('data/airports.json.gz');
+    const res = await fetch(`data/airports.json.gz?v=${DATA_V}`);
     if (res.ok) list = (await readMaybeGzip(res)).airports;
   } catch {}
   AIRPORT_BY_ICAO = new Map(list.map(a => [a[0], a]));
@@ -677,7 +712,7 @@ const flightShardCache = new Map();
 async function loadFlights(date, hex) {
   const key = `${date}/${hex.slice(0, 2)}`;
   if (!flightShardCache.has(key)) {
-    const res = await fetch(`data/daily/${date}.flights.${hex.slice(0, 2)}.json.gz`);
+    const res = await fetch(`data/daily/${date}.flights.${hex.slice(0, 2)}.json.gz?v=${DATA_V}`);
     flightShardCache.set(key, res.ok ? (await readMaybeGzip(res)).flights : {});
   }
   return flightShardCache.get(key)[hex] || [];
@@ -738,7 +773,7 @@ const dayCache = new Map();
 
 async function loadDay(date) {
   if (dayCache.has(date)) return dayCache.get(date);
-  const res = await fetch(`data/daily/${date}.json.gz`);
+  const res = await fetch(`data/daily/${date}.json.gz?v=${DATA_V}`);
   if (!res.ok) throw new Error(`No index published for ${date}.`);
   const doc = await readMaybeGzip(res);
   dayCache.set(date, doc);
@@ -761,43 +796,123 @@ fetch('data/daily/index.json').then(r => r.ok ? r.json() : []).then(list => {
   sel.innerHTML = list.map(d => `<option value="${d.date}">${d.date} — ${fmt(d.count)} aircraft</option>`).join('');
 }).catch(() => { $('daySelect').innerHTML = '<option value="">Index unavailable</option>'; });
 
+/* ---------------- filtering ----------------
+   Everything runs against the day already in memory, so the count can update on
+   every keystroke and every pan. Narrowing until the number is small is the
+   whole workflow: a wide view is tens of thousands of aircraft. */
+
+const FILTERS = ['scopeFilter', 'legFilter', 'altMin', 'altMax', 'hourFrom',
+                 'hourTo', 'spanMax', 'regFilter', 'endFilter', 'apFilter'];
+let dayDoc = null;
+
+// Free text to a set of ICAO codes: the code itself, the IATA code, or any part
+// of the airfield's name.
+function airportMatcher(q) {
+  q = q.trim().toUpperCase();
+  if (!q) return null;
+  const codes = new Set();
+  if (AIRPORT_BY_ICAO) {
+    for (const a of AIRPORT_BY_ICAO.values()) {
+      // ICAO, IATA, the airfield name, or the city it serves — a reporter is
+      // far more likely to know "Dakar" than "Blaise Diagne".
+      if (a[0] === q || a[1] === q ||
+          a[2].toUpperCase().includes(q) ||
+          (a[6] || '').toUpperCase().includes(q)) codes.add(a[0]);
+    }
+  }
+  if (!codes.size) codes.add(q);   // unrecognised code: match it literally
+  return codes;
+}
+
+// Row: [hex, minLat, minLon, maxLat, maxLon, firstHr, lastHr, maxAlt,
+//       positions, regCountry, legs, firstDep, lastArr, airports]
+function applyFilters() {
+  if (!dayDoc) return [];
+  const b = map.getBounds();
+  const [S, N, W, E] = [b.getSouth(), b.getNorth(), b.getWest(), b.getEast()];
+  const within = $('scopeFilter').value === 'within';
+  const altMin = Number($('altMin').value) || 0;
+  const altMax = Number($('altMax').value) || Infinity;
+  const hFrom = Number($('hourFrom').value), hTo = Number($('hourTo').value);
+  const spanMax = Number($('spanMax').value) || Infinity;
+  const reg = $('regFilter').value, endWant = $('endFilter').value, legWant = $('legFilter').value;
+  const wantCodes = airportMatcher($('apFilter').value);
+
+  return dayDoc.aircraft.filter(a => {
+    const inView = within
+      ? (a[1] >= S && a[3] <= N && a[2] >= W && a[4] <= E)
+      : (a[3] >= S && a[1] <= N && a[4] >= W && a[2] <= E);
+    if (!inView) return false;
+    if (a[7] < altMin || a[7] > altMax) return false;
+    if (a[6] < hFrom || a[5] > hTo) return false;
+    if (reg && a[9] !== reg) return false;
+    if (spanMax !== Infinity && haversineKm(a[1], a[2], a[3], a[4]) > spanMax) return false;
+    const legs = a[10] || 0;
+    if (legWant === '1' && legs !== 1) return false;
+    if (legWant === '2' && (legs < 2 || legs > 4)) return false;
+    if (legWant === '5' && legs < 5) return false;
+    if (endWant === 'named' && !a[12]) return false;
+    if (endWant === 'unnamed' && a[12]) return false;
+    if (wantCodes && !(a[13] || '').split(' ').some(c => c && wantCodes.has(c))) return false;
+    return true;
+  });
+}
+
+function recount() {
+  const n_el = $('tallyN'), label = $('tallyT'), box = n_el.parentElement;
+  if (!dayDoc) { n_el.textContent = '—'; label.textContent = 'choose a day to begin'; return; }
+  const n = applyFilters().length;
+  n_el.textContent = fmt(n);
+  box.classList.toggle('none', n === 0);
+  box.classList.toggle('drawable', n > 0 && n <= MAX_PATHS);
+  label.textContent = n === 0 ? 'nothing matches — widen the filters'
+    : n <= MAX_PATHS ? 'aircraft match, all can be drawn'
+    : `aircraft match — narrow to ${fmt(MAX_PATHS)} to draw them all`;
+}
+
+FILTERS.forEach(id => {
+  const el = $(id);
+  el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', recount);
+});
+map.on('moveend', recount);
+
+$('resetBtn').addEventListener('click', () => {
+  $('scopeFilter').value = 'touch';
+  ['legFilter', 'regFilter', 'endFilter', 'altMin', 'altMax', 'spanMax', 'apFilter']
+    .forEach(id => { $(id).value = ''; });
+  $('hourFrom').value = '0'; $('hourTo').value = '23';
+  recount();
+});
+
+async function ensureDay(date) {
+  if (dayDoc && dayDoc.date === date) return dayDoc;
+  $('tallyT').textContent = 'loading the day…';
+  [dayDoc] = await Promise.all([loadDay(date), loadAirports()]);
+  return dayDoc;
+}
+
+$('daySelect').addEventListener('change', async () => {
+  const date = $('daySelect').value;
+  if (!date) return;
+  try { await ensureDay(date); recount(); }
+  catch (err) { $('areaOut').innerHTML = `<div class="alert">${err.message}</div>`; }
+});
+
 $('searchAreaBtn').addEventListener('click', async () => {
   const date = $('daySelect').value;
   if (!date) return;
   const btn = $('searchAreaBtn');
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>Filtering';
+  btn.innerHTML = '<span class="spinner"></span>Working';
   try {
-    const doc = await loadDay(date);
+    await ensureDay(date);
+    const hits = applyFilters();
     const b = map.getBounds();
-    const [S, N, W, E] = [b.getSouth(), b.getNorth(), b.getWest(), b.getEast()];
-    const within = $('scopeFilter').value === 'within';
-    const altMin = Number($('altMin').value) || 0;
-    const altMax = Number($('altMax').value) || Infinity;
-    const hFrom = Number($('hourFrom').value);
-    const hTo = Number($('hourTo').value);
-    const spanMax = Number($('spanMax').value) || Infinity;
-    const reg = $('regFilter').value;
-
-    // Rows are [hex, minLat, minLon, maxLat, maxLon, firstHr, lastHr, maxAlt, positions, regCountry]
-    const hits = doc.aircraft.filter(a => {
-      const inView = within
-        ? (a[1] >= S && a[3] <= N && a[2] >= W && a[4] <= E)   // whole day inside the frame
-        : (a[3] >= S && a[1] <= N && a[4] >= W && a[2] <= E);  // merely overlapped it
-      if (!inView) return false;
-      if (a[7] < altMin || a[7] > altMax) return false;
-      if (a[6] < hFrom || a[5] > hTo) return false;            // active during the window
-      if (reg && a[9] !== reg) return false;
-      // Corner-to-corner distance: small means it circled, large means it travelled.
-      if (spanMax !== Infinity && haversineKm(a[1], a[2], a[3], a[4]) > spanMax) return false;
-      return true;
-    });
 
     layer.clearLayers();
     L.rectangle(b, { color: cssVar('--fg-faint'), weight: 1, dashArray: '3 4', fillOpacity: 0 }).addTo(layer);
 
-    const signal = cssVar('--signal');
-    const dim = cssVar('--fg-faint');
+    const signal = cssVar('--signal'), dim = cssVar('--fg-faint');
     hits.slice(0, MAX_MARKERS).forEach(a => {
       L.circleMarker([(a[1] + a[3]) / 2, (a[2] + a[4]) / 2], {
         radius: 3.5, weight: 1.5, opacity: .85, fillOpacity: .35,
@@ -807,12 +922,13 @@ $('searchAreaBtn').addEventListener('click', async () => {
 
     lastLoaded = { kind: 'area', records: hits.map(a => ({
       hex: a[0], min_lat: a[1], min_lon: a[2], max_lat: a[3], max_lon: a[4],
-      first_hour: a[5], last_hour: a[6], max_alt_ft: a[7], positions: a[8], reg_country: a[9] })) };
+      first_hour: a[5], last_hour: a[6], max_alt_ft: a[7], positions: a[8],
+      reg_country: a[9], flights: a[10], first_dep: a[11], last_arr: a[12] })) };
 
     if (!hits.length) {
       $('areaOut').innerHTML = `<div class="empty">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <p>No aircraft recorded in this view on ${date}.<br>Large parts of the world have no receiver coverage at all — that is a finding in itself, not an error.</p></div>`;
+        <p>Nothing matches on ${date}. Large parts of the world have no receiver coverage at all, which is a finding in itself rather than an error.</p></div>`;
       return;
     }
 
@@ -820,33 +936,30 @@ $('searchAreaBtn').addEventListener('click', async () => {
       <button class="hit" data-hex="${a[0]}">
         <span class="hex">${a[0].toUpperCase()}</span>
         <span class="flag ${a[9] === 'US' ? 'us' : ''}">${a[9] === 'US' ? 'US' : '—'}</span>
-        <span class="meta">${fmt(a[7])} ft · ${String(a[5]).padStart(2, '0')}–${String(a[6]).padStart(2, '0')}h</span>
+        <span class="meta">${a[11] || '····'} → ${a[12] || '····'}</span>
       </button>`).join('');
 
     $('areaOut').innerHTML = `
       <div class="summary">
         <div class="id">${fmt(hits.length)} aircraft</div>
-        <div class="sub">in view on ${date}${hits.length > MAX_MARKERS ? ` · first ${fmt(MAX_MARKERS)} mapped` : ''}</div>
+        <div class="sub">on ${date}${hits.length > MAX_MARKERS ? ` · first ${fmt(MAX_MARKERS)} marked` : ''}</div>
       </div>
       <button class="ghost" id="drawBtn">${hits.length <= MAX_PATHS
         ? `Draw flight paths for these ${fmt(hits.length)}`
         : `Draw flight paths (${fmt(MAX_PATHS)} of ${fmt(hits.length)})`}</button>
       <div class="hits">${rows}</div>
-      ${hits.length > 200 ? `<p class="note" style="margin-top:10px">Showing the first 200. Zoom in, or filter by altitude, to narrow it.</p>` : ''}
-      <p class="note" style="margin-top:12px">Select any aircraft to pull its full track for that day.</p>`;
+      ${hits.length > 200 ? `<p class="note" style="margin-top:10px">Listing the first 200 of ${fmt(hits.length)}.</p>` : ''}
+      <p class="note" style="margin-top:12px">Each row shows where that aircraft's day began and ended. Dots mean the airfield could not be identified. Select one for its full record.</p>`;
 
-    $('areaOut').querySelectorAll('.hit').forEach(el => el.addEventListener('click', () => {
-      openTrace(el.dataset.hex, date);
-    }));
-
+    $('areaOut').querySelectorAll('.hit').forEach(el =>
+      el.addEventListener('click', () => openTrace(el.dataset.hex, date)));
     const drawBtn = $('drawBtn');
     if (drawBtn) drawBtn.onclick = () => drawTracks(hits, date, b);
   } catch (err) {
     $('areaOut').innerHTML = `<div class="alert">${err.message}</div>`;
   } finally {
-    // Must be finally: the no-results branch returns early.
     btn.disabled = false;
-    btn.textContent = 'Search this map view';
+    btn.textContent = 'Show on map';
   }
 });
 
@@ -856,7 +969,7 @@ const trackCache = new Map();
 
 async function loadTracks(date) {
   if (trackCache.has(date)) return trackCache.get(date);
-  const res = await fetch(`data/daily/${date}.tracks.json.gz`);
+  const res = await fetch(`data/daily/${date}.tracks.json.gz?v=${DATA_V}`);
   if (!res.ok) throw new Error(`No flight paths published for ${date}.`);
   const doc = await readMaybeGzip(res);
   const scale = doc.scale || 1000;

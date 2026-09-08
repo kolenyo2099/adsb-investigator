@@ -44,7 +44,7 @@ _airports = None
 
 
 def airports():
-    """[(icao, iata, name, lat, lon, country), ...] — loaded once."""
+    """[(icao, iata, name, lat, lon, country, city), ...] — loaded once."""
     global _airports
     if _airports is None:
         if AIRPORTS_FILE.exists():

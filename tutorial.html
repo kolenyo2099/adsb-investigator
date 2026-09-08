@@ -262,39 +262,55 @@ worth examining one by one.</p>
 </ol>
 
 <h3>The filters, and what each one is for</h3>
-<p>A busy region can return thousands of aircraft, nearly all of them airliners
-crossing overhead. These filters exist to strip that away.</p>
+<p>A wide view returns tens of thousands of aircraft, nearly all of them
+airliners crossing overhead. Filtering is not a refinement here, it is the
+whole job. The count above the buttons updates as you change anything,
+including panning the map, so you can narrow until the number is small enough
+to be worth drawing.</p>
 
 <table>
   <tr><th>Filter</th><th>What it finds</th></tr>
-  <tr><td><strong>Presence in view</strong></td>
-      <td>Set to <em>stayed entirely in the view</em>, this drops every aircraft
-      that was merely passing through, leaving only those whose whole day
-      happened inside your frame. Usually the single biggest cut.</td></tr>
+  <tr><td><strong>Airfield touched</strong></td>
+      <td>Every aircraft that departed from or arrived at a field, at any point
+      in the day. Accepts a code or a city, so <code>GOBD</code>,
+      <code>DSS</code> and <code>Dakar</code> all work. Usually the fastest way
+      from tens of thousands to a readable handful.</td></tr>
+  <tr><td><strong>Presence</strong></td>
+      <td>Set to <em>whole day in view</em>, this drops everything that was
+      merely passing overhead, leaving aircraft that operated locally.</td></tr>
+  <tr><td><strong>Flights</strong></td>
+      <td>How many separate flights the aircraft made. One flight is usually a
+      transit; five or more is a shuttle, a training pattern or a survey.</td></tr>
   <tr><td><strong>Ceiling</strong></td>
-      <td>The highest altitude an aircraft reached that day. A low maximum
-      excludes cruising airliners and leaves local flying.</td></tr>
+      <td>The highest altitude reached that day. A low maximum excludes
+      cruising airliners and leaves local flying.</td></tr>
   <tr><td><strong>Active from / to</strong></td>
-      <td>The hours during which it was heard. Useful for isolating activity at
-      night, or around a known event.</td></tr>
+      <td>The hours it was heard. Useful for isolating night activity, or
+      movements around a known event.</td></tr>
   <tr><td><strong>Max range</strong></td>
-      <td>How far apart the furthest two points of its day were. A small figure
-      means the aircraft circled rather than travelled, which is the signature
-      of survey, training and surveillance patterns.</td></tr>
+      <td>How far apart the two furthest points of its day were. A small figure
+      means it circled rather than travelled, which is the signature of survey,
+      training and surveillance patterns.</td></tr>
+  <tr><td><strong>Where flights ended</strong></td>
+      <td>Set to <em>arrival not observed</em>, this leaves only aircraft whose
+      last flight ends with no identifiable airfield: they were still airborne
+      when the record stopped. Worth a look, though bear in mind it is also the
+      normal result over any region with thin coverage.</td></tr>
   <tr><td><strong>Registration</strong></td>
       <td>Whether the ICAO address falls in the United States range. Exact and
       free, unlike anything about the route.</td></tr>
 </table>
 
-<p>Combining a low ceiling with a short range over a single region is an
-effective way to surface aircraft that spent the day orbiting rather than going
-anywhere.</p>
+<p>Combining a named airfield with a time window, or a low ceiling with a short
+range over one region, is usually enough to get from a hairball to something
+you can actually read.</p>
 
 <h3>Drawing the flight paths</h3>
-<p>Once a search is down to a few hundred aircraft, <strong>Draw flight
-paths</strong> replaces the dots with the routes themselves. The paths come
-from the same nightly index, so this is one download for the whole day rather
-than a request per aircraft.</p>
+<p><strong>Draw flight paths</strong> replaces the dots with the routes
+themselves. The paths come from the same nightly index, so this is one download
+for the whole day rather than a request per aircraft. Above 600 matches it
+draws an arbitrary slice and says so — treat that as texture, and keep
+filtering until everything fits.</p>
 
 <p>The shapes are the point. Rectangular traffic circuits, holding orbits and
 survey grids are unmistakable as lines and completely invisible as dots. Hover

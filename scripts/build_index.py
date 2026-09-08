@@ -149,7 +149,16 @@ def write_day(day: date, seen, tracks, samples, blocks):
         n_legs += len(rows)
         # Where the day began and ended, carried in the light index so a region
         # can be filtered by airport without fetching any leg detail.
-        summary[hexid] = (len(rows), legs[0]["dep"]["icao"] or "", legs[-1]["arr"]["icao"] or "")
+        # Every field the day touched, not just the first and last, so "what
+        # came through here" catches an aircraft that only stopped mid-day.
+        touched = []
+        for lg in legs:
+            for end in ("dep", "arr"):
+                code = lg[end]["icao"]
+                if code and code not in touched:
+                    touched.append(code)
+        summary[hexid] = (len(rows), legs[0]["dep"]["icao"] or "",
+                          legs[-1]["arr"]["icao"] or "", " ".join(touched))
 
     total_flight_bytes = 0
     for prefix, sh in shards.items():
@@ -185,7 +194,7 @@ def write_day(day: date, seen, tracks, samples, blocks):
     aircraft = [
         [f"{h:06x}", round(r[0], 4), round(r[1], 4), round(r[2], 4), round(r[3], 4),
          r[4], r[5], r[6], r[7], reg_country(h),
-         *(summary.get(h) or (0, "", ""))]
+         *(summary.get(h) or (0, "", "", ""))]
         for h, r in sorted(seen.items())
     ]
     path = DAILY / f"{iso}.json.gz"
@@ -195,7 +204,7 @@ def write_day(day: date, seen, tracks, samples, blocks):
             "blocks_scanned": len(list(blocks)),
             "fields": ["hex", "min_lat", "min_lon", "max_lat", "max_lon",
                        "first_hour", "last_hour", "max_alt_ft", "positions", "reg_country",
-                       "legs", "first_dep", "last_arr"],
+                       "legs", "first_dep", "last_arr", "airports"],
             "aircraft": aircraft,
         }, fh, separators=(",", ":"))
     sizes["index"] = path.stat().st_size
