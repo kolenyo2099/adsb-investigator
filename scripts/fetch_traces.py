@@ -116,6 +116,10 @@ def gap_report(trace_doc):
                 "last_known_lat": lat,
                 "last_known_lon": lon,
                 "last_known_alt": prev[3],
+                # Stopping at ground level is a parked aircraft; stopping at
+                # altitude means it left coverage still flying — the case worth
+                # looking at.
+                "airborne": prev[3] != "ground",
                 "reachable_envelope_km": envelope,
             }
         )

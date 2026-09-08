@@ -78,29 +78,58 @@ feature. Please report it.</p>
 flight path of one tail number on one day.</p>
 
 <div class="step"><div class="n">1</div><div>
-  Open the app and pick a tail number from the first dropdown. The list is
-  limited to the aircraft this tool has been asked to track (its
-  "watchlist") — see §7 if you don't see the one you're looking for.
+  Type a <strong>tail number</strong> (like <code>N703KW</code>) or a
+  six-character <strong>ICAO hex code</strong> (like <code>a960a9</code>) into
+  the first box. Any aircraft works — there's no preset list to pick from.
 </div></div>
 <div class="step"><div class="n">2</div><div>
-  Pick a date from the second dropdown. Dates only appear if position data
-  was actually captured for that aircraft on that day.
+  Choose a date and click <strong>Look up</strong>. If nothing comes back,
+  that means the aircraft either didn't fly that day or flew entirely outside
+  receiver coverage — the app will say so rather than showing you an empty map.
 </div></div>
 <div class="step"><div class="n">3</div><div>
-  The map draws the flight path: a green dot for the first position seen
-  that day, a black dot for the last, and a blue line connecting every point
-  in between.
+  The map draws the flight path: a green dot for the first position seen,
+  a black dot for the last, and a blue line connecting every point between.
 </div></div>
 
-<p>Below the map controls, the sidebar lists every <strong>coverage
-gap</strong> found in the track — any stretch of 20 minutes or more with no
-position reports. See the next section for how to read those.</p>
+<div class="callout">
+  <strong>Why it also loads the two previous days.</strong> The underlying data
+  is filed one calendar day at a time, so a flight that crosses midnight would
+  otherwise appear to be two unrelated fragments — and a gap spanning midnight
+  would be invisible entirely. The app quietly stitches the surrounding days
+  together so long gaps are measured correctly.
+</div>
+
+<p>Below the controls, the sidebar lists every <strong>coverage gap</strong>
+in the track — any stretch of 20 minutes or more with no position reports.
+See the next section for how to read those.</p>
+
+<p>There's also a collapsed <em>"browse archived aircraft"</em> list, which
+holds aircraft whose data has been saved into the project directly. It's a
+convenience shortcut, not a limit on what you can search.</p>
 
 <h2 id="gaps">3. Reading a gap report</h2>
-<p>Each gap card shows four things: how long the aircraft was unseen, where
-it was last observed (position and altitude), and a <strong>reachable
-envelope</strong> — a set of circles showing how far the aircraft could have
-travelled in that time under a few different assumptions.</p>
+<p>Not all gaps mean the same thing, so the app sorts them into two kinds —
+and this distinction is the single most useful thing on the screen.</p>
+
+<table>
+  <tr><th>Greyed out — "parked"</th><th>Red — "left coverage while still airborne"</th></tr>
+  <tr>
+    <td>The track ended at ground level. The aircraft landed and switched off.
+    Completely routine — most gaps are these.</td>
+    <td>The track ended <em>at altitude</em>. The aircraft flew out of receiver
+    range while still flying, and reappeared somewhere else later. This is the
+    kind worth investigating.</td>
+  </tr>
+</table>
+
+<p>Only airborne gaps get a reachable envelope and a circle on the map — drawing
+one around a parked aircraft would imply a journey that plainly didn't happen.</p>
+
+<p>An airborne gap card shows how long the aircraft was unseen, where it was
+last observed (position and altitude), and a <strong>reachable envelope</strong>
+— how far it could have travelled in that time under a few different
+assumptions.</p>
 
 <pre>1431 min gap from (32.66, -92.87) @ 19075 ft
 Reachable envelope: 0h stop → 10137 km · 0.5h stop → 9924 km
@@ -202,10 +231,19 @@ in knots). An area scan's columns include <code>hex</code>, <code>reg_country</c
 
 <h2 id="faq">7. Frequently asked questions</h2>
 
-<h3>An aircraft I need isn't in the dropdown. What do I do?</h3>
-<p>The trace tab only shows aircraft on this tool's watchlist. Ask whoever
-maintains this tool's data to add the tail number — it's a one-line change,
-and only needs to be added once.</p>
+<h3>How far back can I search?</h3>
+<p>The underlying archive keeps roughly the last month of the current year,
+plus complete past years. That means there can be a hole between the two — for
+recent months of the current year, data may not be retrievable on demand even
+though the flight happened. If a date in that window matters to your story,
+ask the maintainer: it's recoverable from a bulk archive, but not instantly.</p>
+
+<h3>I searched a tail number and got nothing. Does that mean it didn't fly?</h3>
+<p>No — and this is the most important misreading to avoid. It means no
+receiver logged it. The aircraft may have flown somewhere with no coverage,
+flown without broadcasting, or not flown at all. The three look identical
+from here. Check a date you know it flew to confirm the tail number resolves
+correctly before drawing any conclusion from an empty result.</p>
 
 <h3>Can I get area coverage for a new region or date?</h3>
 <p>Area scans take real time and bandwidth to generate, so they're run

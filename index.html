@@ -14,6 +14,8 @@
   h1 { font-size: 16px; margin: 0 0 12px; }
   .gap { border: 1px solid #d33; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-size: 13px; }
   .gap b { color: #d33; }
+  .gap.ground { border-color: #8886; opacity: .6; }
+  .gap.ground b { color: inherit; }
   .envelope { font-size: 12px; opacity: .8; }
   .note { font-size: 12px; opacity: .7; margin-top: 16px; }
   #status { font-size: 13px; opacity: .8; }
@@ -26,6 +28,10 @@
   #pyOut { white-space: pre-wrap; background: #0002; border-radius: 6px; padding: 8px; font-family: ui-monospace, monospace; font-size: 12px; max-height: 220px; overflow: auto; }
   button.action { width: 100%; padding: 8px; margin: 6px 0; border: none; border-radius: 6px; background: #2266dd; color: #fff; cursor: pointer; }
   button.action:disabled { opacity: .5; cursor: default; }
+  .fld { display: block; font-size: 12px; opacity: .8; margin-bottom: 8px; }
+  .fld input { width: 100%; padding: 6px; margin-top: 3px; box-sizing: border-box; font-size: 14px; }
+  details { margin: 10px 0; font-size: 13px; }
+  summary { cursor: pointer; opacity: .75; margin-bottom: 8px; }
 </style>
 </head>
 <body>
@@ -39,8 +45,20 @@
   </div>
 
   <div id="paneTrace">
-    <select id="aircraftSelect"><option>Loading index…</option></select>
-    <select id="dateSelect" disabled><option>Select aircraft first</option></select>
+    <label class="fld">Tail number or ICAO hex
+      <input id="tailInput" type="text" placeholder="N703KW or a960a9" autocomplete="off">
+    </label>
+    <label class="fld">Date
+      <input id="dateInput" type="date">
+    </label>
+    <button id="lookupBtn" class="action">Look up</button>
+
+    <details id="archiveWrap">
+      <summary>or browse archived aircraft</summary>
+      <select id="aircraftSelect"><option>Loading index…</option></select>
+      <select id="dateSelect" disabled><option>Select aircraft first</option></select>
+    </details>
+
     <div id="status"></div>
     <div id="gaps"></div>
     <p class="note">Gaps are the finding, not an inferred destination. Envelope
@@ -70,6 +88,14 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
+// Set this to your deployed Worker URL to enable live lookup of any aircraft.
+// Empty string = live lookup disabled, archived data only.
+const PROXY = '';
+
+const GAP_THRESHOLD_S = 20 * 60;  // shorter gaps are routine dropout, not a finding
+const CRUISE_KMH = 850;
+const STOP_ASSUMPTIONS_H = [0, 0.5, 1, 2];
+
 const map = L.map('map').setView([15, 10], 3);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; OpenStreetMap contributors', maxZoom: 12
@@ -103,14 +129,8 @@ aircraftSelect.addEventListener('change', () => {
   if (dates.length) dateSelect.dispatchEvent(new Event('change'));
 });
 
-dateSelect.addEventListener('change', async () => {
-  const hex = aircraftSelect.value;
-  const day = dateSelect.value;
-  if (!hex || !day) return;
-  status.textContent = 'Loading trace…';
+function renderTrace(doc, label) {
   trackLayer.clearLayers();
-  gapsEl.innerHTML = '';
-  const doc = await fetch(`data/traces/${hex}/${day}.json`).then(r => r.json());
   const pts = (doc.trace || []).map(p => [p[1], p[2]]);
   if (pts.length) {
     const line = L.polyline(pts, { color: '#2266dd', weight: 3 }).addTo(trackLayer);
@@ -118,19 +138,39 @@ dateSelect.addEventListener('change', async () => {
     L.circleMarker(pts[0], { color: 'green', radius: 6 }).bindTooltip('start').addTo(trackLayer);
     L.circleMarker(pts[pts.length - 1], { color: 'black', radius: 6 }).bindTooltip('end').addTo(trackLayer);
   }
-  status.textContent = `${doc.reg} — ${day} — ${pts.length} points, ${(doc.gaps || []).length} coverage gap(s)`;
+  status.textContent = `${label} — ${pts.length} points, ${(doc.gaps || []).length} coverage gap(s)`;
   lastLoaded = { kind: 'trace', records: (doc.trace || []).map(p => ({ t: p[0], lat: p[1], lon: p[2], alt: p[3], gs: p[4] })) };
 
-  gapsEl.innerHTML = (doc.gaps || []).map(g => {
+  const gaps = doc.gaps || [];
+  // `airborne` is absent in older archived files; fall back to reading the altitude.
+  const isAirborne = g => g.airborne !== undefined ? g.airborne : g.last_known_alt !== 'ground';
+  const airborneCount = gaps.filter(isAirborne).length;
+
+  gapsEl.innerHTML = gaps.map(g => {
     const mins = Math.round(g.duration_s / 60);
+    const alt = g.last_known_alt === 'ground' ? 'on the ground' : `${g.last_known_alt} ft`;
+    const where = `(${g.last_known_lat.toFixed(2)}, ${g.last_known_lon.toFixed(2)}) ${alt}`;
+    if (!isAirborne(g)) {
+      return `<div class="gap ground">
+        <b>${mins} min</b> parked at ${where}
+        <div class="envelope">Landed and stopped transmitting — routine.</div>
+      </div>`;
+    }
     const env = g.reachable_envelope_km.map(e => `${e.assumed_stop_h}h stop → ${e.radius_km} km`).join(' · ');
     return `<div class="gap">
-      <b>${mins} min gap</b> from (${g.last_known_lat.toFixed(2)}, ${g.last_known_lon.toFixed(2)}) @ ${g.last_known_alt} ft
-      <div class="envelope">Reachable envelope: ${env}</div>
+      <b>${mins} min gap</b> from ${where}
+      <div class="envelope">Left coverage while still airborne. Reachable envelope: ${env}</div>
     </div>`;
   }).join('') || '<p class="note">No coverage gaps ≥20 min this day.</p>';
 
-  (doc.gaps || []).forEach(g => {
+  if (gaps.length && !airborneCount) {
+    gapsEl.insertAdjacentHTML('afterbegin',
+      '<p class="note" style="margin-top:0">All gaps are on the ground — nothing left coverage mid-flight.</p>');
+  }
+
+  // Only airborne gaps get a reachable circle. Drawing one around a parked
+  // aircraft would imply a journey that plainly didn't happen.
+  gaps.filter(isAirborne).forEach(g => {
     const maxKm = Math.max(...g.reachable_envelope_km.map(e => e.radius_km));
     if (maxKm > 0) {
       L.circle([g.last_known_lat, g.last_known_lon], {
@@ -138,7 +178,111 @@ dateSelect.addEventListener('change', async () => {
       }).addTo(trackLayer);
     }
   });
+}
+
+dateSelect.addEventListener('change', async () => {
+  const hex = aircraftSelect.value;
+  const day = dateSelect.value;
+  if (!hex || !day) return;
+  status.textContent = 'Loading trace…';
+  gapsEl.innerHTML = '';
+  const doc = await fetch(`data/traces/${hex}/${day}.json`).then(r => r.json());
+  renderTrace(doc, `${doc.reg} — ${day}`);
 });
+
+// --- Live lookup: any aircraft, any date (needs PROXY) ---
+
+// Same rules as the nightly job, so live and archived results agree.
+function computeGaps(points) {
+  const gaps = [];
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1], cur = points[i];
+    const dt = cur[0] - prev[0];
+    if (dt < GAP_THRESHOLD_S) continue;
+    const hours = dt / 3600;
+    // A track that stops at ground level is a parked aircraft — routine. A track
+    // that stops at altitude means it flew out of coverage still flying, which is
+    // the case worth looking at.
+    const airborne = prev[3] !== 'ground';
+    gaps.push({
+      start_t: prev[0], end_t: cur[0], duration_s: dt,
+      last_known_lat: prev[1], last_known_lon: prev[2], last_known_alt: prev[3],
+      airborne,
+      reachable_envelope_km: STOP_ASSUMPTIONS_H.map(stop => ({
+        assumed_stop_h: stop,
+        radius_km: Math.round(Math.max(hours - stop, 0) / 2 * CRUISE_KMH),
+      })),
+    });
+  }
+  return gaps;
+}
+
+async function resolveHex(input) {
+  const s = input.trim().replace(/\s+/g, '');
+  if (/^[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase();
+  const res = await fetch(`https://hexdb.io/reg-hex?reg=${encodeURIComponent(s.toUpperCase())}`);
+  const hex = (await res.text()).trim();
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) throw new Error(`Couldn't resolve "${s}" to an aircraft. Check the tail number, or enter the 6-character ICAO hex directly.`);
+  return hex.toLowerCase();
+}
+
+function shiftDate(iso, days) {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+async function liveLookup(rawInput, day) {
+  if (!PROXY) throw new Error('Live lookup is not configured for this deployment. Use the archived aircraft list below.');
+  const hex = await resolveHex(rawInput);
+
+  // Traces are per-UTC-day, so a gap spanning midnight is invisible in a single
+  // day's file. Pull the two preceding days too and stitch them into one series.
+  const days = [shiftDate(day, -2), shiftDate(day, -1), day];
+  const docs = await Promise.all(days.map(d =>
+    fetch(`${PROXY}/trace/${d}/${hex}`).then(r => r.ok ? r.json() : null).catch(() => null)
+  ));
+  if (docs.every(d => d === null)) {
+    throw new Error(`No ADS-B data for ${rawInput.toUpperCase()} (${hex}) on ${day} or the two days before it. The aircraft may not have flown, or flew outside receiver coverage.`);
+  }
+
+  let merged = [], reg = null, type = null;
+  docs.forEach(doc => {
+    if (!doc) return;
+    reg = reg || doc.r; type = type || doc.t;
+    const base = doc.timestamp || 0;
+    (doc.trace || []).forEach(p => merged.push([base + p[0], p[1], p[2], p[3], p[4]]));
+  });
+  merged.sort((a, b) => a[0] - b[0]);
+
+  const dayEnd = Date.parse(day + 'T23:59:59Z') / 1000;
+  const gaps = computeGaps(merged).filter(g => g.end_t <= dayEnd);
+  return { reg: reg || hex, hex, type, date: day, trace: merged, gaps };
+}
+
+const tailInput = document.getElementById('tailInput');
+const dateInput = document.getElementById('dateInput');
+const lookupBtn = document.getElementById('lookupBtn');
+dateInput.value = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+
+async function doLookup() {
+  const raw = tailInput.value.trim();
+  if (!raw) { status.textContent = 'Enter a tail number or ICAO hex first.'; return; }
+  lookupBtn.disabled = true;
+  status.textContent = 'Looking up…';
+  gapsEl.innerHTML = '';
+  try {
+    const doc = await liveLookup(raw, dateInput.value);
+    renderTrace(doc, `${doc.reg} (${doc.hex}) — ${doc.date}`);
+  } catch (err) {
+    status.textContent = '';
+    gapsEl.innerHTML = `<p class="note">${err.message}</p>`;
+    trackLayer.clearLayers();
+  }
+  lookupBtn.disabled = false;
+}
+lookupBtn.addEventListener('click', doLookup);
+tailInput.addEventListener('keydown', e => { if (e.key === 'Enter') doLookup(); });
 
 // --- Area scan tab ---
 const tabTrace = document.getElementById('tabTrace');
