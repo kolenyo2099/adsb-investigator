@@ -1,0 +1,27 @@
+name: Nightly trace fetch
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # 06:00 UTC, after adsb.lol's prod release usually lands
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch watchlisted traces
+        run: python3 scripts/fetch_traces.py
+      - name: Commit and push data
+        run: |
+          git config user.name "adsb-investigator-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/
+          git diff --cached --quiet || git commit -m "data: nightly trace fetch $(date -u +%F)"
+          git push

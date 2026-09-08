@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ADS-B Investigator</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; display: flex; height: 100vh; }
+  #sidebar { width: 340px; padding: 12px; overflow-y: auto; border-right: 1px solid #8884; box-sizing: border-box; }
+  #map { flex: 1; }
+  select { width: 100%; padding: 6px; margin-bottom: 10px; }
+  h1 { font-size: 16px; margin: 0 0 12px; }
+  .gap { border: 1px solid #d33; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-size: 13px; }
+  .gap b { color: #d33; }
+  .envelope { font-size: 12px; opacity: .8; }
+  .note { font-size: 12px; opacity: .7; margin-top: 16px; }
+  #status { font-size: 13px; opacity: .8; }
+</style>
+</head>
+<body>
+<div id="sidebar">
+  <h1>ADS-B Investigator</h1>
+  <select id="aircraftSelect"><option>Loading index…</option></select>
+  <select id="dateSelect" disabled><option>Select aircraft first</option></select>
+  <div id="status"></div>
+  <div id="gaps"></div>
+  <p class="note">Gaps are the finding, not an inferred destination. Envelope
+  radii assume 850 km/h cruise and 0–2h ground stops — see HANDOFF.md §7.</p>
+</div>
+<div id="map"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const map = L.map('map').setView([15, 10], 3);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors', maxZoom: 12
+}).addTo(map);
+
+let trackLayer = L.layerGroup().addTo(map);
+let index = {};
+
+const aircraftSelect = document.getElementById('aircraftSelect');
+const dateSelect = document.getElementById('dateSelect');
+const status = document.getElementById('status');
+const gapsEl = document.getElementById('gaps');
+
+fetch('data/index.json').then(r => r.ok ? r.json() : {}).then(idx => {
+  index = idx;
+  const hexes = Object.keys(index);
+  if (!hexes.length) {
+    aircraftSelect.innerHTML = '<option>No data yet — run scripts/fetch_traces.py</option>';
+    return;
+  }
+  aircraftSelect.innerHTML = hexes.map(h => `<option value="${h}">${index[h].reg} (${h})</option>`).join('');
+  aircraftSelect.dispatchEvent(new Event('change'));
+}).catch(() => { aircraftSelect.innerHTML = '<option>No data yet</option>'; });
+
+aircraftSelect.addEventListener('change', () => {
+  const hex = aircraftSelect.value;
+  const dates = (index[hex] && index[hex].dates) || [];
+  dateSelect.disabled = !dates.length;
+  dateSelect.innerHTML = dates.map(d => `<option value="${d}">${d}</option>`).join('');
+  if (dates.length) dateSelect.dispatchEvent(new Event('change'));
+});
+
+dateSelect.addEventListener('change', async () => {
+  const hex = aircraftSelect.value;
+  const day = dateSelect.value;
+  if (!hex || !day) return;
+  status.textContent = 'Loading trace…';
+  trackLayer.clearLayers();
+  gapsEl.innerHTML = '';
+  const doc = await fetch(`data/traces/${hex}/${day}.json`).then(r => r.json());
+  const pts = (doc.trace || []).map(p => [p[1], p[2]]);
+  if (pts.length) {
+    const line = L.polyline(pts, { color: '#2266dd', weight: 3 }).addTo(trackLayer);
+    map.fitBounds(line.getBounds(), { maxZoom: 8 });
+    L.circleMarker(pts[0], { color: 'green', radius: 6 }).bindTooltip('start').addTo(trackLayer);
+    L.circleMarker(pts[pts.length - 1], { color: 'black', radius: 6 }).bindTooltip('end').addTo(trackLayer);
+  }
+  status.textContent = `${doc.reg} — ${day} — ${pts.length} points, ${(doc.gaps || []).length} coverage gap(s)`;
+
+  gapsEl.innerHTML = (doc.gaps || []).map(g => {
+    const mins = Math.round(g.duration_s / 60);
+    const env = g.reachable_envelope_km.map(e => `${e.assumed_stop_h}h stop → ${e.radius_km} km`).join(' · ');
+    return `<div class="gap">
+      <b>${mins} min gap</b> from (${g.last_known_lat.toFixed(2)}, ${g.last_known_lon.toFixed(2)}) @ ${g.last_known_alt} ft
+      <div class="envelope">Reachable envelope: ${env}</div>
+    </div>`;
+  }).join('') || '<p class="note">No coverage gaps ≥20 min this day.</p>';
+
+  (doc.gaps || []).forEach(g => {
+    const maxKm = Math.max(...g.reachable_envelope_km.map(e => e.radius_km));
+    if (maxKm > 0) {
+      L.circle([g.last_known_lat, g.last_known_lon], {
+        radius: maxKm * 1000, color: '#d33', fillOpacity: 0.05, dashArray: '4 4'
+      }).addTo(trackLayer);
+    }
+  });
+});
+</script>
+</body>
+</html>
