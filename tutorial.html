@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ADS-B Investigator — Tutorial</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0 auto; max-width: 760px; padding: 32px 20px 80px; font-family: -apple-system, system-ui, sans-serif; line-height: 1.55; }
+  h1 { font-size: 28px; margin-bottom: 4px; }
+  h2 { margin-top: 44px; border-bottom: 1px solid #8884; padding-bottom: 6px; }
+  h3 { margin-top: 28px; }
+  .lede { opacity: .8; font-size: 16px; }
+  .callout { border-left: 4px solid #2266dd; background: #2266dd14; padding: 10px 16px; border-radius: 0 6px 6px 0; margin: 16px 0; }
+  .warn { border-left-color: #d33; background: #d3331014; }
+  code, pre { font-family: ui-monospace, monospace; }
+  code { background: #8882; padding: 1px 5px; border-radius: 4px; }
+  pre { background: #8882; padding: 12px; border-radius: 8px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid #8884; padding: 6px 10px; text-align: left; }
+  .toc { background: #8881; border-radius: 8px; padding: 16px 20px; }
+  .toc a { display: block; padding: 3px 0; }
+  a { color: #2266dd; }
+  .step { display: flex; gap: 12px; margin: 14px 0; }
+  .step .n { flex: none; width: 26px; height: 26px; border-radius: 50%; background: #2266dd; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; }
+  .top-link { font-size: 14px; }
+</style>
+</head>
+<body>
+
+<p class="top-link"><a href="index.html">← Back to the app</a></p>
+<h1>ADS-B Investigator</h1>
+<p class="lede">A field guide for reporters, researchers, and anyone else who wants
+to see where an aircraft has flown — and where the record goes dark.</p>
+
+<div class="toc">
+  <strong>Contents</strong>
+  <a href="#idea">1. The core idea (read this first)</a>
+  <a href="#trace">2. Looking up one aircraft</a>
+  <a href="#gaps">3. Reading a gap report</a>
+  <a href="#area">4. Finding aircraft in a region</a>
+  <a href="#analyze">5. Digging deeper with the Analyze tab</a>
+  <a href="#limits">6. What this tool can't tell you</a>
+  <a href="#faq">7. Frequently asked questions</a>
+</div>
+
+<h2 id="idea">1. The core idea (read this first)</h2>
+<p>This tool reads <strong>ADS-B</strong> data — the position reports aircraft
+broadcast in flight, picked up by a global network of volunteer ground
+receivers. It is not radar, and it is not a flight plan. Two things follow
+from that, and everything else in this guide builds on them:</p>
+
+<div class="callout">
+  <strong>There is no "destination" in the data.</strong> An aircraft's ADS-B
+  signal simply stops when it flies out of range of every receiver, and
+  starts again when it comes back into range — even if it never landed. This
+  tool never guesses where a plane went during a gap. It shows you the gap,
+  where the aircraft was last seen, and the outer limit of how far it could
+  plausibly have travelled before reappearing.
+</div>
+
+<div class="callout warn">
+  <strong>No signal doesn't mean no flight.</strong> Ground-receiver coverage
+  is dense over North America, Europe, and much of Asia — and thin to
+  nonexistent across large parts of Africa, the open ocean, and other
+  sparsely populated regions. A long gap over a place with no coverage tells
+  you nothing was watching, not that nothing happened.
+</div>
+
+<p>Everything the tool shows you is either a directly observed fact (a
+position, an altitude, a timestamp) or an honestly-labelled inference with
+its assumptions stated (the reachable-distance circles in a gap report). If
+you ever see the tool imply a specific destination — that's a bug, not a
+feature. Please report it.</p>
+
+<h2 id="trace">2. Looking up one aircraft</h2>
+<p>The <strong>Aircraft trace</strong> tab is the starting point. It shows the
+flight path of one tail number on one day.</p>
+
+<div class="step"><div class="n">1</div><div>
+  Open the app and pick a tail number from the first dropdown. The list is
+  limited to the aircraft this tool has been asked to track (its
+  "watchlist") — see §7 if you don't see the one you're looking for.
+</div></div>
+<div class="step"><div class="n">2</div><div>
+  Pick a date from the second dropdown. Dates only appear if position data
+  was actually captured for that aircraft on that day.
+</div></div>
+<div class="step"><div class="n">3</div><div>
+  The map draws the flight path: a green dot for the first position seen
+  that day, a black dot for the last, and a blue line connecting every point
+  in between.
+</div></div>
+
+<p>Below the map controls, the sidebar lists every <strong>coverage
+gap</strong> found in the track — any stretch of 20 minutes or more with no
+position reports. See the next section for how to read those.</p>
+
+<h2 id="gaps">3. Reading a gap report</h2>
+<p>Each gap card shows four things: how long the aircraft was unseen, where
+it was last observed (position and altitude), and a <strong>reachable
+envelope</strong> — a set of circles showing how far the aircraft could have
+travelled in that time under a few different assumptions.</p>
+
+<pre>1431 min gap from (32.66, -92.87) @ 19075 ft
+Reachable envelope: 0h stop → 10137 km · 0.5h stop → 9924 km
+                      1h stop → 9712 km · 2h stop → 9287 km</pre>
+
+<p>Read that as: <em>the aircraft was last seen at this position and altitude,
+then vanished from ADS-B coverage for 1,431 minutes (23.8 hours). If it flew
+the whole time at typical cruise speed, it could be up to 10,137 km from that
+point. If it also sat on the ground somewhere for up to two hours mid-gap,
+that shrinks to as little as 9,287 km.</em> The true answer is somewhere in
+that range — the tool won't pick a point for you, and neither should you,
+without other evidence.</p>
+
+<div class="callout">
+  <strong>Use the envelope to rule places out, not in.</strong> The most
+  reliable way to use a gap report is negatively: a reachable radius of 700
+  km rules out a city 2,000 km away. It does not, by itself, confirm the
+  aircraft visited any specific place within the circle.
+</div>
+
+<p>On the map, each gap is drawn as a dashed red circle centered on the last
+known position, sized to the largest (most generous) radius in its
+envelope.</p>
+
+<h2 id="area">4. Finding aircraft in a region</h2>
+<p>The <strong>Area scan</strong> tab answers a different question: not "where
+did this one aircraft go," but "what aircraft were seen in this region on
+this day, at all." This is how new leads get found — for instance, narrowing
+a wide search area down to a handful of candidate aircraft before digging
+into each one with the Aircraft trace tab.</p>
+
+<div class="callout">
+  Area scans are <strong>precomputed</strong> and only cover the regions and
+  dates someone has already run a scan for — the list in the dropdown is
+  everything currently available. If the region or date you need isn't
+  there, ask whoever maintains this tool's data to run one (see §7).
+</div>
+
+<p>Each result on the map is a dot for one aircraft, colored by what's known
+about its registration: <span style="color:#d33">red</span> for aircraft
+registered in the United States (identifiable for free from the aircraft's
+ICAO identifier), <span style="opacity:.6">grey</span> for aircraft whose
+registration country hasn't been resolved yet. The list in the sidebar gives
+the same information as text, plus the exact position, altitude, and which
+hour of the day each aircraft was first seen in the scan.</p>
+
+<h2 id="analyze">5. Digging deeper with the Analyze tab</h2>
+<p>If dropdowns and gap cards aren't enough — say, you want to filter, sort,
+or chart the data yourself — the <strong>Analyze</strong> tab gives you a
+real Python data-analysis environment, running entirely in your browser. No
+installation, no account, and nothing you type or load ever leaves your
+computer.</p>
+
+<div class="step"><div class="n">1</div><div>
+  First, load something to analyze: view an aircraft trace or an area scan
+  in the other tabs. Whatever you looked at last is what gets loaded.
+</div></div>
+<div class="step"><div class="n">2</div><div>
+  Switch to the Analyze tab and click <strong>Load Python</strong>. This
+  downloads a small Python environment (about 10 MB) — it only happens once
+  per visit, and only if you ask for it.
+</div></div>
+<div class="step"><div class="n">3</div><div>
+  Once it's ready, your data is sitting in a variable called <code>df</code>
+  — standard for a "DataFrame" in the pandas library, which is the standard
+  tool for this kind of data work in Python. Type an expression in the box
+  and click <strong>Run</strong>.
+</div></div>
+
+<p>A few starting points, if Python is new to you:</p>
+<table>
+  <tr><th>Type this</th><th>To see</th></tr>
+  <tr><td><code>df.head()</code></td><td>The first few rows, so you can see what columns exist</td></tr>
+  <tr><td><code>df.describe()</code></td><td>Quick statistics — min, max, average — for every numeric column</td></tr>
+  <tr><td><code>df.sort_values('alt')</code></td><td>Every row sorted by altitude, lowest first</td></tr>
+  <tr><td><code>df[df['gs'] &lt; 50]</code></td><td>Only the rows where ground speed is under 50 knots — useful for spotting where a plane slowed down or was taxiing</td></tr>
+  <tr><td><code>len(df)</code></td><td>How many rows (position reports, or aircraft) are in the data</td></tr>
+</table>
+
+<p>A trace's columns are <code>t</code> (timestamp), <code>lat</code>,
+<code>lon</code>, <code>alt</code> (feet), and <code>gs</code> (ground speed
+in knots). An area scan's columns include <code>hex</code>, <code>reg_country</code>,
+<code>lat</code>, <code>lon</code>, <code>alt_ft</code>, and <code>gs_kt</code>.</p>
+
+<h2 id="limits">6. What this tool can't tell you</h2>
+<ul>
+  <li><strong>Destination.</strong> Never shown, never inferred. See §1.</li>
+  <li><strong>Passengers, cargo, or purpose of flight.</strong> ADS-B carries
+  only position and identification data — nothing about what or who is
+  aboard.</li>
+  <li><strong>Certainty during a gap.</strong> The reachable-envelope circles
+  are physics, not evidence — they describe what's <em>possible</em>, not
+  what happened.</li>
+  <li><strong>Aircraft not on the watchlist, outside a scanned area, or
+  flying without ADS-B.</strong> Some aircraft — often military or state
+  aircraft — don't broadcast at all, or broadcast without a public
+  identifier. Their absence from this tool proves nothing either way.</li>
+</ul>
+
+<h2 id="faq">7. Frequently asked questions</h2>
+
+<h3>An aircraft I need isn't in the dropdown. What do I do?</h3>
+<p>The trace tab only shows aircraft on this tool's watchlist. Ask whoever
+maintains this tool's data to add the tail number — it's a one-line change,
+and only needs to be added once.</p>
+
+<h3>Can I get area coverage for a new region or date?</h3>
+<p>Area scans take real time and bandwidth to generate, so they're run
+on request rather than for the whole world continuously. Ask the maintainer
+for the date range and bounding box you need.</p>
+
+<h3>Is this data authoritative?</h3>
+<p>It's sourced from a public, volunteer-run ADS-B receiver network, released
+under a public-domain (CC0) license. Treat it the way you'd treat any single
+source: strong for what it directly shows (a plane was here, at this time,
+at this altitude), and it should be corroborated, like any single source,
+before it anchors a claim on its own.</p>
+
+<h3>Why can't the app just show live flights?</h3>
+<p>By design, this tool only ever shows historical data that's already been
+fetched and saved — not a live feed. That keeps it lightweight, reproducible,
+and gentle on the volunteer infrastructure the underlying data comes from.</p>
+
+<p style="margin-top:56px; opacity:.6; font-size:13px;">Questions or a bug to report? Open an issue on the project's GitHub repository.</p>
+</body>
+</html>
