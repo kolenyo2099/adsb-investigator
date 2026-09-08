@@ -432,7 +432,6 @@ footer a:hover { color: var(--accent); }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 const MAX_MARKERS = 800;   // beyond this the map stops being readable anyway
-const TRACK_LIMIT = 600;   // paths come from one file, so the cap is about legibility
 const MAX_PATHS = 600;     // beyond this the map is a hairball, not a finding
 
 const $ = id => document.getElementById(id);
@@ -829,9 +828,9 @@ $('searchAreaBtn').addEventListener('click', async () => {
         <div class="id">${fmt(hits.length)} aircraft</div>
         <div class="sub">in view on ${date}${hits.length > MAX_MARKERS ? ` · first ${fmt(MAX_MARKERS)} mapped` : ''}</div>
       </div>
-      ${hits.length <= TRACK_LIMIT
-        ? `<button class="ghost" id="drawBtn">Draw flight paths for these ${fmt(hits.length)}</button>`
-        : `<p class="note">Narrow to ${TRACK_LIMIT} aircraft or fewer before drawing paths, or the map becomes a hairball.</p>`}
+      <button class="ghost" id="drawBtn">${hits.length <= MAX_PATHS
+        ? `Draw flight paths for these ${fmt(hits.length)}`
+        : `Draw flight paths (${fmt(MAX_PATHS)} of ${fmt(hits.length)})`}</button>
       <div class="hits">${rows}</div>
       ${hits.length > 200 ? `<p class="note" style="margin-top:10px">Showing the first 200. Zoom in, or filter by altitude, to narrow it.</p>` : ''}
       <p class="note" style="margin-top:12px">Select any aircraft to pull its full track for that day.</p>`;
@@ -903,8 +902,12 @@ async function drawTracks(hits, date, bounds) {
     });
 
     $('areaOut').querySelectorAll('.pathnote').forEach(n => n.remove());
+    const capped = hits.length > MAX_PATHS;
     btn.insertAdjacentHTML('afterend',
-      `<p class="note pathnote">${fmt(drawn)} path${drawn === 1 ? '' : 's'} drawn${missing ? `, ${fmt(missing)} with too few positions to plot` : ''}${hits.length > MAX_PATHS ? `, capped at ${fmt(MAX_PATHS)}` : ''}. Paths are simplified in proportion to how far each aircraft ranged, so orbits keep their shape while long crossings stay light.</p>`);
+      `<p class="note pathnote">${capped
+        ? `Drew ${fmt(drawn)} of ${fmt(hits.length)} aircraft. That is an arbitrary slice, not a meaningful one — narrow the search until everything fits, or read this as texture rather than evidence.`
+        : `${fmt(drawn)} path${drawn === 1 ? '' : 's'} drawn${missing ? `, ${fmt(missing)} with too few positions to plot` : ''}.`}
+        Paths are simplified in proportion to how far each aircraft ranged, so orbits keep their shape while long crossings stay light.</p>`);
   } catch (err) {
     $('areaOut').querySelectorAll('.pathnote').forEach(n => n.remove());
     btn.insertAdjacentHTML('afterend', `<p class="note pathnote">${err.message}</p>`);
