@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Reading adsb.lol's hourly global heatmap files. Stdlib only.
+"""Reading adsb.lol's global heatmap files. Stdlib only.
 
-Each hour is one file of fixed-size binary records covering every aircraft
-seen worldwide. There's no spatial index, so any area question is a full scan —
-which is why this runs server-side and its output gets published as a per-day
-index rather than queried live.
+A day is 48 files, not 24: each covers a half hour, numbered 00 to 47. Each
+holds fixed-size binary records for every aircraft seen worldwide, preceded by
+a table of offsets, one per 10-second slice, which is what lets a position be
+given a timestamp.
+
+There is no spatial index, so any area question is a full scan — which is why
+this runs server-side and its output is published as a per-day index rather
+than queried live.
 """
 import gzip
 import struct
@@ -30,14 +34,18 @@ def reg_country(hex_int):
     return "unknown"
 
 
-def fetch_hour(day: date, hour: int):
-    """Raw decompressed bytes for one hour, or None if that hour isn't published.
+BLOCKS_PER_DAY = 48
+BLOCK_SECONDS = 1800  # each file covers half an hour
+
+
+def fetch_block(day: date, block: int):
+    """Raw decompressed bytes for one half-hour block, or None if not published.
 
     Served with a .ttf extension but it's gzip — trust the bytes, not the name.
     """
     url = (
         f"https://adsb.lol/globe_history/{day.year:04d}/{day.month:02d}/{day.day:02d}"
-        f"/heatmap/{hour:02d}.bin.ttf"
+        f"/heatmap/{block:02d}.bin.ttf"
     )
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
@@ -48,6 +56,41 @@ def fetch_hour(day: date, hour: int):
             return None
         raise
     return gzip.decompress(raw)
+
+
+GS_UNKNOWN = 0xFFFF  # sentinel, not a real 6553.5 kt
+
+
+def parse_with_time(raw, block):
+    """Yield (t_utc_seconds, icao, lat, lon, alt_ft, gs_kt_or_None).
+
+    Each file opens with a table of record offsets, one per time slice, which
+    is what gives every position a timestamp. Header entries are recognisable
+    by carrying no position, altitude or speed at all.
+    """
+    n = len(raw) // RECORD_SIZE
+    header = []
+    for i in range(n):
+        w, lat, lon, alt, gs = struct.unpack_from(RECORD_FMT, raw, i * RECORD_SIZE)
+        if lat == 0 and lon == 0 and alt == 0 and gs == 0:
+            header.append(w)
+        else:
+            break
+    if not header:
+        return
+    step = BLOCK_SECONDS / len(header)
+    bounds = header + [n]
+    for k in range(len(header)):
+        t = block * BLOCK_SECONDS + k * step
+        for i in range(bounds[k], min(bounds[k + 1], n)):
+            w, lat, lon, alt, gs = struct.unpack_from(RECORD_FMT, raw, i * RECORD_SIZE)
+            la, lo = lat / 1e6, lon / 1e6
+            if not (-90 <= la <= 90 and -180 <= lo <= 180) or (la == 0 and lo == 0):
+                continue
+            icao = w & 0xFFFFFF
+            if icao < 0x000100:
+                continue
+            yield t, icao, la, lo, alt * 25, (None if gs == GS_UNKNOWN else gs / 10)
 
 
 def parse_records(raw):

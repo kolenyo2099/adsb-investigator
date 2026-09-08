@@ -129,8 +129,8 @@ aircraft has been, and what it means when the record goes quiet.</p>
   <div>Contents</div>
   <a href="#idea">1. What this data is, and is not</a>
   <a href="#trace">2. Following one aircraft</a>
-  <a href="#gaps">3. Reading a gap report</a>
-  <a href="#ends">4. Where a flight began and ended</a>
+  <a href="#flights">3. Reading the flights</a>
+  <a href="#ends">4. When the record simply stops</a>
   <a href="#area">5. Finding aircraft over a region</a>
   <a href="#analyze">6. Going further with Python</a>
   <a href="#limits">7. What this tool cannot tell you</a>
@@ -189,90 +189,61 @@ destination, that is a defect worth reporting.</p>
   days together so long gaps are measured correctly.</p>
 </div>
 
-<h2 id="gaps">3. Reading a gap report</h2>
-<p>Gaps are not all alike, and telling them apart is the most useful thing on
-the screen.</p>
-
-<table>
-  <tr>
-    <th>Dimmed, marked "parked"</th>
-    <th>Red, marked "unobserved"</th>
-  </tr>
-  <tr>
-    <td>The track ended at ground level. The aircraft landed and switched off.
-    Entirely routine, and most gaps are these.</td>
-    <td>The track ended <strong>at altitude</strong>. The aircraft flew out of
-    range while still flying, and surfaced somewhere else later. This is the
-    kind worth your attention.</td>
-  </tr>
-</table>
-
-<p>Only unobserved gaps get a reachable envelope and a circle on the map.
-Drawing one around a parked aircraft would imply a journey that plainly did not
-happen.</p>
-
-<pre><b>5h 30m</b>  UNOBSERVED
-Left coverage at 35,000 ft, over 37.2810, -70.2660
-
-REACHABLE BEFORE IT REAPPEARED
-No ground stop                            2,334 km
-30 min stop                               2,122 km
-1 h stop                                  1,909 km
-2 h stop                                  1,484 km</pre>
-
-<p>Read that as: the aircraft was last heard at that position and altitude,
-then went unheard for five and a half hours. Flying the whole time at typical
-cruise speed, it could be anywhere within 2,334 km of that point. Had it also
-sat on the ground for two hours, the reachable area shrinks to 1,484 km. The
-truth lies somewhere in that range, and the tool will not pick a point inside
-it for you.</p>
-
-<div class="callout">
-  <div class="hd">How to use the envelope honestly</div>
-  <p><strong>It rules places out, not in.</strong> A reachable radius of 700 km
-  excludes a city 2,000 km away, and that exclusion is solid. It never confirms
-  the aircraft visited any particular place inside the circle. Treat the
-  envelope as a boundary on the possible, not as evidence of a route.</p>
-</div>
-
-<h2 id="ends">4. Where a flight began and ended</h2>
-<p>Under each aircraft you will find two cards describing the ends of the
-track. They are the closest this tool comes to naming an origin and a
-destination, and the distinction they draw is deliberate.</p>
-
-<div class="callout">
-  <div class="hd">Observed, not inferred</div>
-  <p><strong>Green means the aircraft was actually on the ground there.</strong>
-  The track begins or ends at ground level, so a receiver watched it sitting on
-  the surface, and the nearest airfield within 6 km is named. That is an
-  observation, not a guess.</p>
-</div>
+<h2 id="flights">3. Reading the flights</h2>
+<p>Each aircraft's day is broken into <strong>flights</strong>, and each flight
+gets a departure and an arrival. This is the heart of the tool, and the wording
+of those two cards is doing careful work that is worth understanding.</p>
 
 <div class="callout warn">
-  <div class="hd">The other case</div>
-  <p><strong>Grey means the track begins or ends in the air.</strong> All you
-  know is where the aircraft entered or left receiver range. It was flying
-  before, and it kept flying after. The card reports the altitude, whether it
-  was climbing or descending, and the nearest airfield as context only.</p>
+  <div class="hd">Read this before trusting an airfield name</div>
+  <p><strong>Aircraft are almost never heard on the ground.</strong> Receivers
+  rarely pick up a parked aircraft, so a track normally begins already climbing
+  and ends still descending. Departure and arrival are therefore <em>inferred</em>
+  from altitude, whether it was climbing or descending, and how close it was to
+  a runway. They are a strong reading of the evidence, not a recorded fact.</p>
 </div>
 
-<p>That context line is where your judgement comes in, and it is worth an
-example. A track that ends at 425 ft, three kilometres from a runway, still
-reads <em>destination not observed</em>. That is technically correct: nobody
-watched it touch down, and it could have gone around. But an aircraft
-descending through 425 ft that close to a runway is landing, and any reader can
-draw that conclusion. The tool gives you the altitude, the trend and the
-distance, and leaves the inference to you rather than making it silently.</p>
+<p>How confident the tool is changes the words it uses:</p>
 
-<p>The same aircraft's first card might read <em>first heard airborne at 9,625
-ft, climbing, 8 km from Alexandria International</em>. Again, it almost
-certainly departed there, and again the tool declines to write that down for
-you. The rule throughout is that observations and inferences never share a
-sentence.</p>
+<table>
+  <tr><th>What it says</th><th>What that means</th></tr>
+  <tr><td><strong>Departed / Arrived</strong><br>seen on the ground</td>
+      <td>The aircraft was actually heard moving slowly on the surface near the
+      field. Rare, and the strongest evidence available.</td></tr>
+  <tr><td><strong>Departed / Arrived</strong><br>low and close in</td>
+      <td>Low altitude, within about 18 km of the runway, climbing away or
+      descending towards it. Not proof of a landing, but hard to explain any
+      other way.</td></tr>
+  <tr><td><strong>Probably departed / arrived</strong></td>
+      <td>Higher or further out, up to about 45 km and 12,000 ft, with the right
+      climb or descent. Plausible, and worth checking against another source.</td></tr>
+  <tr><td><strong>Origin / destination not observed</strong></td>
+      <td>The track begins or ends at cruise, or nowhere near a runway. The
+      aircraft was flying before and kept flying after. The nearest field is
+      shown as context only, and must not be read as the answer.</td></tr>
+</table>
 
-<p>On the map, the same distinction is drawn as <strong>filled dots for
-positions observed on the ground</strong> and <strong>hollow dots where a track
-merely entered or left coverage</strong>.</p>
+<p>On the map, a solid dot marks an end the tool could tie to an airfield, and a
+hollow dot marks one it could not.</p>
+
+<div class="callout">
+  <div class="hd">How a day is split into flights</div>
+  <p>A long pause in the record only counts as a landing if the aircraft was low
+  beforehand. A pause at cruise altitude is lost coverage, not a landing, so it
+  does not split a flight in two. That distinction matters over oceans and over
+  much of Africa, where an aircraft can be unheard for hours mid-flight.</p>
+</div>
+
+<h2 id="ends">4. When the record simply stops</h2>
+<p>Coverage is not uniform. Over the oceans, over the Sahara, over central
+Africa, an aircraft can vanish from the record for hours while still flying.
+When that happens at the end of a day's track, you will see <em>destination not
+observed</em>, and that is the honest answer rather than a failure.</p>
+
+<p>Treat an unobserved destination as an open question, not a dead end. The
+altitude and heading at the last position tell you which way it was going, the
+nearest-field line tells you what was under it, and both are worth pairing with
+whatever else your reporting has established.</p>
 
 <h2 id="area">5. Finding aircraft over a region</h2>
 <p>The <strong>Area</strong> tab answers a different question: not where one
@@ -341,9 +312,9 @@ aircraft and open its full record.</p>
 <h3>The legend</h3>
 <p>The panel at the bottom left of the map explains the current view and
 changes with the tab you are on. It can be collapsed once the symbols are
-familiar. The distinction worth remembering is the one in section 4: filled
-dots mark positions observed on the ground, hollow dots mark where a track
-merely entered or left receiver coverage.</p>
+familiar. The distinction worth remembering is the one in section 3: a solid dot
+marks an end the tool could tie to an airfield, a hollow one marks an end it
+could not.</p>
 
 <p>Results are coloured by what the ICAO address reveals about registration:
 red for United States registration, grey where the country has not been

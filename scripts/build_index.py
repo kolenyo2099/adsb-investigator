@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""Build a per-day index of every aircraft seen, from the hourly heatmaps.
+"""Build the per-day data the browser reads: what flew, where it went, and
+where each flight began and ended.
 
-This is the half of the pipeline a browser can't do for itself. Looking up a
-known aircraft needs no index at all (the trace URL is derivable from hex and
-date), but "what was flying over here that day" has no index upstream and would
-otherwise mean scanning ~340 MB of heatmaps per query.
+This is the half of the pipeline a browser cannot do for itself. There is no
+index upstream, so answering "what was over here that day" would otherwise mean
+scanning around a gigabyte of heatmap files per query.
 
-It's also an archive: adsb.lol keeps only a rolling ~31-day window of the
+It is also an archive. adsb.lol keeps only a rolling ~31-day window of the
 current year, so a day not captured now becomes expensive to recover later.
 
-One compact file per day, so the browser makes one request and then answers
-every question — by hex, by area, by altitude — locally.
+Files per day:
+  YYYY-MM-DD.json.gz            every aircraft seen, with where its day began
+                                and ended — one fetch answers most questions
+  YYYY-MM-DD.flights.N.json.gz  full leg detail, sharded by first hex digit
+  YYYY-MM-DD.tracks.json.gz     simplified paths, fetched only when drawing
 
-Usage: python3 scripts/build_index.py [YYYY-MM-DD ...] [--hours 0,1,2]
+Usage: python3 scripts/build_index.py [YYYY-MM-DD ...] [--blocks 0,1,2]
 """
 import gzip
 import json
@@ -21,23 +24,30 @@ from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from heatmap import fetch_hour, parse_records, reg_country
+from heatmap import BLOCKS_PER_DAY, fetch_block, parse_with_time, reg_country
+from flights import legs_for
 
 ROOT = Path(__file__).resolve().parent.parent
 DAILY = ROOT / "data" / "daily"
 
+# Positions arrive every 10 s. Segmentation needs far less than that, and
+# holding a whole day at full rate would cost many gigabytes — but detail near
+# the ground is what departure and arrival are judged on, so keep more of it.
+KEEP_LOW_S = 30
+KEEP_HIGH_S = 120
+LOW_ALT_FT = 12000
 
-# Records arrive in time order within each hourly file, so consecutive positions
-# for one aircraft form its path. Straight cruise emits a position every ~2 km
-# and compresses away almost entirely; turns and orbits are what survive.
-#
-# Tolerance is proportional to how far the aircraft ranged that day. A holding
-# pattern a few km across and a transatlantic crossing need very different
-# thresholds, and a fixed one either flattens the orbit or bloats the crossing.
-HOUR_TOL_KM = 0.25          # first pass, purely to bound memory
-FINAL_TOL_FRAC = 0.006      # then this fraction of the aircraft's own range
-FINAL_TOL_MIN_KM = 0.12
-FINAL_TOL_MAX_KM = 4.0
+# Paths are thinned in proportion to how far the aircraft ranged: a fixed
+# tolerance either flattens a traffic circuit or bloats a long crossing.
+BLOCK_TOL_KM = 0.25
+FINAL_TOL_FRAC = 0.010
+FINAL_TOL_MIN_KM = 0.25
+FINAL_TOL_MAX_KM = 6.0
+
+LEVELS = {"unknown": 0, "likely": 1, "high": 2, "observed": 3}
+# Sharded on two hex digits: US addresses all begin "a", so one digit puts a
+# third of the world in a single file.
+SHARD_CHARS = 2
 
 
 def simplify(pts, tol):
@@ -73,23 +83,20 @@ def simplify(pts, tol):
     return [p for p, k in zip(pts, keep) if k]
 
 
-def build_day(day: date, hours, want_tracks=True):
-    """-> (index, tracks)
-
-    index: {hex: [min_lat, min_lon, max_lat, max_lon, first_hr, last_hr, max_alt, points]}
-    tracks: {hex: [(lat, lon), ...]} simplified
-    """
-    seen, tracks = {}, {}
-    tol = HOUR_TOL_KM / 111.0
-    for hour in hours:
-        raw = fetch_hour(day, hour)
+def build_day(day: date, blocks):
+    """-> (summary, tracks, samples)"""
+    seen, tracks, samples, last_t = {}, {}, {}, {}
+    tol = BLOCK_TOL_KM / 111.0
+    for block in blocks:
+        raw = fetch_block(day, block)
         if raw is None:
-            print(f"  hour {hour:02d}: no data")
+            print(f"  block {block:02d}: no data")
             continue
         n = 0
         buf = {}
-        for hexid, lat, lon, alt, _gs in parse_records(raw):
+        for t, hexid, lat, lon, alt, gs in parse_with_time(raw, block):
             n += 1
+            hour = int(t // 3600)
             rec = seen.get(hexid)
             if rec is None:
                 seen[hexid] = [lat, lon, lat, lon, hour, hour, alt, 1]
@@ -101,76 +108,104 @@ def build_day(day: date, hours, want_tracks=True):
                 rec[5] = hour
                 if alt > rec[6]: rec[6] = alt
                 rec[7] += 1
-            if want_tracks:
-                buf.setdefault(hexid, []).append((lat, lon))
-        if want_tracks:
-            # Simplify each hour as it lands: holding a whole day of raw
-            # positions in memory would cost gigabytes.
-            for hexid, pts in buf.items():
-                tracks.setdefault(hexid, []).extend(simplify(pts, tol))
-        print(f"  hour {hour:02d}: {n:,} positions, {len(seen):,} aircraft so far")
-    return seen, tracks
+            buf.setdefault(hexid, []).append((lat, lon))
+
+            # Thinned copy for flight segmentation.
+            gap = KEEP_LOW_S if alt <= LOW_ALT_FT else KEEP_HIGH_S
+            if t - last_t.get(hexid, -1e9) >= gap:
+                last_t[hexid] = t
+                samples.setdefault(hexid, []).append((t, lat, lon, alt, gs))
+
+        # Simplify as each block lands, so memory stays bounded.
+        for hexid, pts in buf.items():
+            tracks.setdefault(hexid, []).extend(simplify(pts, tol))
+        print(f"  block {block:02d}: {n:,} positions, {len(seen):,} aircraft so far")
+    return seen, tracks, samples
 
 
-def write_day(day: date, seen, tracks, hours):
+def write_day(day: date, seen, tracks, samples, blocks):
     DAILY.mkdir(parents=True, exist_ok=True)
-    # Array-of-arrays, coords rounded to ~11 m. Keys and full float precision
-    # would roughly triple the file for no analytical gain.
+    iso = day.isoformat()
+    sizes = {}
+
+    # Flights, sharded by first hex digit so the trace view fetches one small file.
+    shards, n_legs, summary = {}, 0, {}
+    for hexid, pts in samples.items():
+        pts.sort()
+        legs = legs_for(pts)
+        if not legs:
+            continue
+        key = f"{hexid:06x}"
+        rows = []
+        for lg in legs:
+            row = [lg["t0"], lg["t1"], lg["max_alt"]]
+            for end in ("dep", "arr"):
+                e = lg[end]
+                row += [e["lat"], e["lon"], e["alt"], LEVELS[e["level"]],
+                        e["icao"] or e["near_icao"] or "",
+                        -1 if e["near_km"] is None else int(round(e["near_km"]))]
+            rows.append(row)
+        shards.setdefault(key[:SHARD_CHARS], {})[key] = rows
+        n_legs += len(rows)
+        # Where the day began and ended, carried in the light index so a region
+        # can be filtered by airport without fetching any leg detail.
+        summary[hexid] = (len(rows), legs[0]["dep"]["icao"] or "", legs[-1]["arr"]["icao"] or "")
+
+    total_flight_bytes = 0
+    for prefix, sh in shards.items():
+        spath = DAILY / f"{iso}.flights.{prefix}.json.gz"
+        with gzip.open(spath, "wt", encoding="utf-8") as fh:
+            json.dump({"date": iso, "flights": sh}, fh, separators=(",", ":"))
+        total_flight_bytes += spath.stat().st_size
+    sizes["flights"] = total_flight_bytes
+    print(f"  {n_legs:,} flights across {len(summary):,} aircraft -> {len(shards)} shards "
+          f"({total_flight_bytes / 1e6:.1f} MB total, largest "
+          f"{max((DAILY / f'{iso}.flights.{p}.json.gz').stat().st_size for p in shards) / 1e3:.0f} KB)")
+
+    # Paths, delta-encoded in thousandths of a degree (~110 m)
+    enc = {}
+    for h, pts in tracks.items():
+        if len(pts) < 2:
+            continue
+        r = seen[h]
+        span_km = max(abs(r[2] - r[0]), abs(r[3] - r[1])) * 111.0
+        ftol = min(max(span_km * FINAL_TOL_FRAC, FINAL_TOL_MIN_KM), FINAL_TOL_MAX_KM)
+        out_pts, pla, plo = [], 0, 0
+        for la, lo in simplify(pts, ftol / 111.0):
+            ila, ilo = int(round(la * 1000)), int(round(lo * 1000))
+            out_pts.append(ila - pla)
+            out_pts.append(ilo - plo)
+            pla, plo = ila, ilo
+        enc[f"{h:06x}"] = out_pts
+    tpath = DAILY / f"{iso}.tracks.json.gz"
+    with gzip.open(tpath, "wt", encoding="utf-8") as fh:
+        json.dump({"date": iso, "scale": 1000, "tracks": enc}, fh, separators=(",", ":"))
+    sizes["tracks"] = tpath.stat().st_size
+
     aircraft = [
         [f"{h:06x}", round(r[0], 4), round(r[1], 4), round(r[2], 4), round(r[3], 4),
-         r[4], r[5], r[6], r[7], reg_country(h)]
+         r[4], r[5], r[6], r[7], reg_country(h),
+         *(summary.get(h) or (0, "", ""))]
         for h, r in sorted(seen.items())
     ]
-    out = {
-        "date": day.isoformat(),
-        "hours_scanned": list(hours),
-        "fields": ["hex", "min_lat", "min_lon", "max_lat", "max_lon",
-                   "first_hour", "last_hour", "max_alt_ft", "positions", "reg_country"],
-        "aircraft": aircraft,
-    }
-    # Gzipped on disk: ~3x smaller, which matters when this lands in git every
-    # night forever. Browsers decompress it with DecompressionStream.
-    path = DAILY / f"{day.isoformat()}.json.gz"
+    path = DAILY / f"{iso}.json.gz"
     with gzip.open(path, "wt", encoding="utf-8") as fh:
-        json.dump(out, fh, separators=(",", ":"))
+        json.dump({
+            "date": iso,
+            "blocks_scanned": len(list(blocks)),
+            "fields": ["hex", "min_lat", "min_lon", "max_lat", "max_lon",
+                       "first_hour", "last_hour", "max_alt_ft", "positions", "reg_country",
+                       "legs", "first_dep", "last_arr"],
+            "aircraft": aircraft,
+        }, fh, separators=(",", ":"))
+    sizes["index"] = path.stat().st_size
 
     manifest_path = DAILY / "index.json"
-    tracks_bytes = 0
-    if tracks:
-        # Separate file: filtering only needs the index, so the heavier
-        # geometry is fetched only when someone actually draws paths.
-        # Coordinates are delta-encoded thousandths of a degree (~110 m).
-        enc = {}
-        for h, pts in tracks.items():
-            if len(pts) < 2:
-                continue
-            # Second pass, now that the aircraft's full extent is known.
-            r = seen[h]
-            span_km = max(abs(r[2] - r[0]), abs(r[3] - r[1])) * 111.0
-            ftol = min(max(span_km * FINAL_TOL_FRAC, FINAL_TOL_MIN_KM), FINAL_TOL_MAX_KM)
-            pts = simplify(pts, ftol / 111.0)
-            out_pts, pla, plo = [], 0, 0
-            for la, lo in pts:
-                ila, ilo = int(round(la * 1000)), int(round(lo * 1000))
-                out_pts.append(ila - pla)
-                out_pts.append(ilo - plo)
-                pla, plo = ila, ilo
-            enc[f"{h:06x}"] = out_pts
-        tpath = DAILY / f"{day.isoformat()}.tracks.json.gz"
-        with gzip.open(tpath, "wt", encoding="utf-8") as fh:
-            json.dump({"date": day.isoformat(), "scale": 1000,
-                       "simplified": "adaptive", "tracks": enc}, fh, separators=(",", ":"))
-        tracks_bytes = tpath.stat().st_size
-        print(f"  {len(enc):,} tracks -> {tpath.name} ({tracks_bytes / 1e6:.1f} MB)")
-
     manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else []
-    manifest = [m for m in manifest if m["date"] != day.isoformat()]
+    manifest = [m for m in manifest if m["date"] != iso]
     manifest.append({
-        "date": day.isoformat(),
-        "count": len(aircraft),
-        "hours": len(list(hours)),
-        "bytes": path.stat().st_size,
-        "tracks_bytes": tracks_bytes,
+        "date": iso, "count": len(aircraft), "flights": n_legs,
+        "blocks": len(list(blocks)), **{f"{k}_bytes": v for k, v in sizes.items()},
     })
     manifest.sort(key=lambda m: m["date"], reverse=True)
     manifest_path.write_text(json.dumps(manifest, indent=2))
@@ -179,20 +214,20 @@ def write_day(day: date, seen, tracks, hours):
 
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    hours = range(24)
+    blocks = range(BLOCKS_PER_DAY)
     for a in sys.argv[1:]:
-        if a.startswith("--hours"):
-            hours = [int(h) for h in a.split("=", 1)[1].split(",")]
+        if a.startswith("--blocks"):
+            blocks = [int(b) for b in a.split("=", 1)[1].split(",")]
 
     days = [date.fromisoformat(a) for a in args] or [date.today() - timedelta(days=1)]
     for day in days:
         print(f"building {day}")
-        seen, tracks = build_day(day, hours)
+        seen, tracks, samples = build_day(day, blocks)
         if not seen:
             print(f"  no data for {day} — skipping (outside the retention window?)")
             continue
-        path, n = write_day(day, seen, tracks, hours)
-        print(f"  {n:,} aircraft -> {path} ({path.stat().st_size / 1e6:.1f} MB)")
+        path, n = write_day(day, seen, tracks, samples, blocks)
+        print(f"  {n:,} aircraft -> {path.name} ({path.stat().st_size / 1e6:.1f} MB)")
 
 
 if __name__ == "__main__":

@@ -189,31 +189,29 @@ details.tuck .body { padding-top: 12px; }
 .end .place { font-size: var(--t2); font-weight: 600; color: var(--fg); }
 .end .det { margin-top: 3px; font: 400 var(--t1)/1.5 var(--mono); color: var(--fg-dim); }
 
-.gap {
-  border: 1px solid var(--signal-dim); border-radius: 9px;
-  padding: 12px 14px; margin-bottom: 9px; background: var(--panel-2);
+.leg {
+  border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2);
+  padding: 11px 12px; margin-bottom: 10px;
   animation: rise .34s cubic-bezier(.16,1,.3,1) backwards;
 }
-.gap.parked { border-color: var(--line); opacity: .72; }
 @keyframes rise { from { opacity: 0; transform: translateY(7px); } }
-@media (prefers-reduced-motion: reduce) { .gap { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .leg { animation: none; } }
+.leg-hd { display: flex; align-items: baseline; gap: 10px; margin-bottom: 9px; }
+.leg-t { font: 600 var(--t3)/1.1 var(--mono); }
+.leg-d { margin-left: auto; font-size: var(--t1); color: var(--fg-faint); font-family: var(--mono); }
 
-.gap .head { display: flex; align-items: baseline; gap: 8px; }
-.gap .dur { font: 600 var(--t5)/1.1 var(--mono); color: var(--signal); letter-spacing: -.02em; }
-.gap.parked .dur { color: var(--fg-dim); font-weight: 400; font-size: var(--t4); }
-.gap .tag {
-  margin-left: auto; font-size: var(--t1); font-weight: 600; letter-spacing: .09em;
-  text-transform: uppercase; color: var(--signal);
-  border: 1px solid var(--signal-dim); border-radius: 4px; padding: 2px 6px;
+.ends { display: grid; gap: 7px; }
+.end { border: 1px solid var(--line); border-left-width: 1px; border-radius: 8px; padding: 9px 11px; background: var(--panel); }
+.end .cap {
+  font-size: var(--t1); font-weight: 600; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--fg-faint); margin-bottom: 4px;
 }
-.gap.parked .tag { color: var(--fg-faint); border-color: var(--line); }
-.gap .where { margin-top: 7px; font-size: var(--t2); color: var(--fg-dim); }
-.gap .coord { font-family: var(--mono); color: var(--fg); }
-.env { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); }
-.env .cap { font-size: var(--t1); font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--fg-faint); margin-bottom: 5px; }
-.env table { width: 100%; border-collapse: collapse; }
-.env td { padding: 3px 0; font-size: var(--t2); color: var(--fg-dim); }
-.env td:last-child { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--fg); }
+.end.observed { border-color: color-mix(in srgb, var(--go) 45%, var(--line)); }
+.end.observed .cap { color: var(--go); }
+.end.maybe { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.end.maybe .cap { color: var(--accent); }
+.end .place { font-size: var(--t2); font-weight: 600; color: var(--fg); }
+.end .det { margin-top: 3px; font: 400 var(--t1)/1.5 var(--mono); color: var(--fg-dim); }
 
 .empty { padding: 26px 16px; text-align: center; color: var(--fg-faint); }
 .empty svg { width: 26px; height: 26px; margin-bottom: 10px; opacity: .5; }
@@ -365,17 +363,6 @@ footer a:hover { color: var(--accent); }
     </label>
     <button class="primary" id="lookupBtn">Look up aircraft</button>
 
-    <details class="tuck" id="authWrap">
-      <summary>Access credentials</summary>
-      <div class="body">
-        <label class="field"><span>Username</span><input id="authUser" type="text" autocomplete="username" spellcheck="false"></label>
-        <label class="field"><span>Password</span><input id="authPass" type="password" autocomplete="current-password"></label>
-        <label style="display:flex;gap:7px;align-items:center;font-size:var(--t2);color:var(--fg-dim)">
-          <input type="checkbox" id="authRemember" checked style="width:auto"> Remember on this device
-        </label>
-        <p class="note" style="margin:9px 0 0">Shared credentials for the lookup service, kept in this browser only. Treat them as a team password, not a personal login.</p>
-      </div>
-    </details>
 
     <div id="traceOut"></div>
   </div>
@@ -444,12 +431,6 @@ footer a:hover { color: var(--accent); }
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
-// Deployed Worker URL enables live lookup of any aircraft. Empty = disabled.
-const PROXY = '';
-
-const GAP_THRESHOLD_S = 20 * 60;   // shorter gaps are routine dropout, not a finding
-const CRUISE_KMH = 850;
-const STOP_ASSUMPTIONS_H = [0, 0.5, 1, 2];
 const MAX_MARKERS = 800;   // beyond this the map stops being readable anyway
 const TRACK_LIMIT = 600;   // paths come from one file, so the cap is about legibility
 const MAX_PATHS = 600;     // beyond this the map is a hairball, not a finding
@@ -513,11 +494,11 @@ const key = (mark, text) => `<div class="k"><i>${mark}</i><span>${text}</span></
 function drawLegend(tab) {
   const accent = cssVar('--accent'), signal = cssVar('--signal'),
         go = cssVar('--go'), fg = cssVar('--fg'), faint = cssVar('--fg-faint');
-  const ground = `<div class="grp"><b>Ends of a track</b>
-    ${key(swatch.dot(go, true), 'First position, on the ground')}
-    ${key(swatch.dot(go, false), 'First position, already airborne')}
-    ${key(swatch.dot(fg, true), 'Last position, on the ground')}
-    ${key(swatch.dot(fg, false), 'Last position, still airborne')}
+  const ends = `<div class="grp"><b>Where a flight began and ended</b>
+    ${key(swatch.dot(go, true), 'Departure, airfield identified')}
+    ${key(swatch.dot(go, false), 'Departure not observed, already airborne')}
+    ${key(swatch.dot(fg, true), 'Arrival, airfield identified')}
+    ${key(swatch.dot(fg, false), 'Arrival not observed, still airborne')}
   </div>`;
 
   $('legendBody').innerHTML = tab === 'tabArea'
@@ -528,43 +509,32 @@ function drawLegend(tab) {
         ${key(swatch.box(faint), 'Your search area')}
        </div>`
     : `<div class="grp"><b>Aircraft track</b>
-        ${key(swatch.line(accent), 'Observed flight path')}
-        ${key(swatch.ring(signal), 'How far it could have gone while unobserved')}
-       </div>${ground}`;
+        ${key(swatch.line(accent), 'Path flown that day')}
+       </div>${ends}`;
 }
 drawLegend('tabTrace');
 
-/* ---------------- shared gap logic (mirrors scripts/) ---------------- */
-function computeGaps(points) {
-  const gaps = [];
-  for (let i = 1; i < points.length; i++) {
-    const prev = points[i - 1], cur = points[i];
-    const dt = cur[0] - prev[0];
-    if (dt < GAP_THRESHOLD_S) continue;
-    const hours = dt / 3600;
-    gaps.push({
-      start_t: prev[0], end_t: cur[0], duration_s: dt,
-      last_known_lat: prev[1], last_known_lon: prev[2], last_known_alt: prev[3],
-      // Ending at ground level is a parked aircraft. Ending at altitude means it
-      // left coverage still flying — the case worth looking at.
-      airborne: prev[3] !== 'ground',
-      reachable_envelope_km: STOP_ASSUMPTIONS_H.map(stop => ({
-        assumed_stop_h: stop,
-        radius_km: Math.round(Math.max(hours - stop, 0) / 2 * CRUISE_KMH),
-      })),
-    });
-  }
-  return gaps;
-}
+/* ---------------- flights ----------------
+   Departure and arrival are inferred, not observed. Receivers rarely hear an
+   aircraft on the ground, so a track usually starts already climbing and ends
+   still descending. Every endpoint carries how strong that inference is, and
+   the wording changes with it. Levels are decided by the nightly job. */
 
+const LEVELS = ['unknown', 'likely', 'high', 'observed'];
+const LEVEL_TEXT = {
+  observed: ['Departed', 'Arrived', 'seen on the ground'],
+  high:     ['Departed', 'Arrived', 'low and close in'],
+  likely:   ['Probably departed', 'Probably arrived', 'near the field'],
+  unknown:  ['Origin not observed', 'Destination not observed', ''],
+};
+
+const clockZ = t => `${String(Math.floor(t / 3600) % 24).padStart(2, '0')}:${String(Math.floor(t % 3600 / 60)).padStart(2, '0')}Z`;
 const duration = s => {
   const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
   return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
 };
-const clockZ = t => new Date(t * 1000).toISOString().slice(11, 16) + 'Z';
 
-// Some hosts decompress .gz in transit and hand back plain JSON. Check the
-// magic bytes rather than trusting the extension.
+// Some hosts decompress .gz in transit. Check the magic bytes, not the name.
 async function readMaybeGzip(res) {
   const buf = await res.arrayBuffer();
   const head = new Uint8Array(buf.slice(0, 2));
@@ -574,25 +544,21 @@ async function readMaybeGzip(res) {
   return JSON.parse(text);
 }
 
-/* ---------------- where a track begins and ends ----------------
-   A track that starts or stops ON THE GROUND tells you where the aircraft
-   actually was: that is an observation. A track that starts or stops in the
-   air tells you only where it entered or left receiver range. The two are
-   reported differently on purpose, and neither is ever called a destination. */
-
-const ON_GROUND_KM = 6;    // an airport this close to a ground position is the field
-const CONTEXT_KM = 80;     // farther than this, naming a field would mislead
-
-let AIRPORTS = null;
+let AIRPORT_BY_ICAO = null;
 async function loadAirports() {
-  if (AIRPORTS) return AIRPORTS;
+  if (AIRPORT_BY_ICAO) return AIRPORT_BY_ICAO;
+  let list = [];
   try {
     const res = await fetch('data/airports.json.gz');
-    if (!res.ok) return (AIRPORTS = []);
-    AIRPORTS = (await readMaybeGzip(res)).airports;
-  } catch { AIRPORTS = []; }
-  return AIRPORTS;
+    if (res.ok) list = (await readMaybeGzip(res)).airports;
+  } catch {}
+  AIRPORT_BY_ICAO = new Map(list.map(a => [a[0], a]));
+  return AIRPORT_BY_ICAO;
 }
+const airportName = icao => {
+  const a = AIRPORT_BY_ICAO && AIRPORT_BY_ICAO.get(icao);
+  return a ? a[2] : icao;
+};
 
 function haversineKm(lat1, lon1, lat2, lon2) {
   const R = 6371, rad = d => d * Math.PI / 180;
@@ -602,161 +568,105 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-function nearestAirport(lat, lon) {
-  if (!AIRPORTS || !AIRPORTS.length) return null;
-  let best = null, bestKm = Infinity;
-  for (const a of AIRPORTS) {
-    const km = haversineKm(lat, lon, a[3], a[4]);
-    if (km < bestKm) { bestKm = km; best = a; }
-  }
-  return { a: best, km: bestKm };
-}
-
-// Read the vertical trend across the few points nearest the end of the track.
-function trendOf(seq) {
-  const alts = seq.map(p => p[3]).filter(v => typeof v === 'number');
-  if (alts.length < 2) return null;
-  const delta = alts.at(-1) - alts[0];
-  if (Math.abs(delta) < 300) return 'holding level';
-  return delta > 0 ? 'climbing' : 'descending';
-}
-
-function endpointOf(points, which) {
-  const p = which === 'start' ? points[0] : points.at(-1);
-  const seq = which === 'start' ? points.slice(0, 8) : points.slice(-8);
-  const onGround = p[3] === 'ground';
-  return {
-    lat: p[1], lon: p[2], alt: p[3], t: p[0], onGround,
-    trend: onGround ? null : trendOf(seq),
-    near: nearestAirport(p[1], p[2]),
-  };
-}
+// Leg row: [t0, t1, maxAlt, depLat, depLon, depAlt, depLevel, depIcao, depKm,
+//                          arrLat, arrLon, arrAlt, arrLevel, arrIcao, arrKm]
+const legEnd = (row, which) => {
+  const o = which === 'dep' ? 3 : 9;
+  return { lat: row[o], lon: row[o + 1], alt: row[o + 2],
+           level: LEVELS[row[o + 3]], icao: row[o + 4] || null, km: row[o + 5] };
+};
 
 function endpointCard(e, which) {
-  const isStart = which === 'start';
-  const coord = `${e.lat.toFixed(4)}, ${e.lon.toFixed(4)}`;
-  const named = e.near && e.near.a
-    ? `${e.near.a[2]}${e.near.a[0] ? ` (${e.near.a[0]})` : ''}`
-    : null;
-
-  if (e.onGround && named && e.near.km <= ON_GROUND_KM) {
-    return `<div class="end observed">
-      <div class="cap">${isStart ? 'Departed' : 'Arrived'} · observed on the ground</div>
-      <div class="place">${named}</div>
-      <div class="det">${clockZ(e.t)} · ${coord}</div>
+  const [depWord, arrWord, why] = LEVEL_TEXT[e.level];
+  const word = which === 'dep' ? depWord : arrWord;
+  const coord = `${e.lat.toFixed(3)}, ${e.lon.toFixed(3)}`;
+  if (e.level === 'unknown') {
+    return `<div class="end">
+      <div class="cap">${word}</div>
+      <div class="place">${which === 'dep' ? 'First heard' : 'Last heard'} at ${fmt(e.alt)} ft</div>
+      <div class="det">${coord}${e.icao ? ` · nearest ${e.icao}, ${e.km} km` : ''}</div>
     </div>`;
   }
-  if (e.onGround) {
-    return `<div class="end observed">
-      <div class="cap">${isStart ? 'Departed' : 'Arrived'} · observed on the ground</div>
-      <div class="place">No airfield on record within ${ON_GROUND_KM} km</div>
-      <div class="det">${clockZ(e.t)} · ${coord}</div>
-    </div>`;
-  }
-  const context = named && e.near.km <= CONTEXT_KM
-    ? `<div class="det">Nearest airfield ${named}, ${Math.round(e.near.km)} km away</div>` : '';
-  return `<div class="end">
-    <div class="cap">${isStart ? 'Origin not observed' : 'Destination not observed'}</div>
-    <div class="place">${isStart ? 'First heard' : 'Last heard'} airborne at ${fmt(e.alt)} ft${e.trend ? `, ${e.trend}` : ''}</div>
-    <div class="det">${clockZ(e.t)} · ${coord}</div>
-    ${context}
+  return `<div class="end ${e.level === 'likely' ? 'maybe' : 'observed'}">
+    <div class="cap">${word}${why ? ` · ${why}` : ''}</div>
+    <div class="place">${airportName(e.icao)} (${e.icao})</div>
+    <div class="det">${fmt(e.alt)} ft · ${e.km} km out · ${coord}</div>
   </div>`;
 }
-const stopLabel = h => h === 0 ? 'No ground stop' : h === 0.5 ? '30 min stop' : `${h} h stop`;
 
-/* ---------------- trace ---------------- */
-function renderTrace(doc) {
+/* ---------------- one aircraft ---------------- */
+function renderAircraft({ hex, reg, type, date, row, legs, path }) {
   layer.clearLayers();
-  const track = doc.trace || [];
-  const pts = track.map(p => [p[1], p[2]]);
-  const ends = track.length ? { start: endpointOf(track, 'start'), end: endpointOf(track, 'end') } : null;
-
-  if (pts.length) {
-    const line = L.polyline(pts, { color: cssVar('--accent'), weight: 2.5, opacity: .9 }).addTo(layer);
-    map.fitBounds(line.getBounds(), { maxZoom: 7, padding: [30, 30] });
-
-    const label = (e, which) => {
-      const named = e.near && e.near.a && e.near.km <= (e.onGround ? ON_GROUND_KM : CONTEXT_KM) ? e.near.a[0] : null;
-      const verb = e.onGround
-        ? `${which === 'start' ? 'Departed' : 'Arrived'}${named ? ' ' + named : ''}`
-        : `${which === 'start' ? 'First heard' : 'Last heard'} airborne · ${fmt(e.alt)} ft`;
-      return `${verb} · ${clockZ(e.t)}`;
-    };
-    // Filled marker where the aircraft was actually on the ground; hollow where
-    // the track merely entered or left coverage.
-    L.circleMarker(pts[0], {
-      radius: 6, weight: 2, color: cssVar('--go'),
-      fillOpacity: ends.start.onGround ? .95 : 0,
-    }).bindTooltip(label(ends.start, 'start')).addTo(layer);
-    L.circleMarker(pts.at(-1), {
-      radius: 6, weight: 2, color: cssVar('--fg'),
-      fillOpacity: ends.end.onGround ? .95 : 0,
-    }).bindTooltip(label(ends.end, 'end')).addTo(layer);
+  if (path && path.length > 1) {
+    const line = L.polyline(path, { color: cssVar('--accent'), weight: 2.5, opacity: .9 }).addTo(layer);
+    map.fitBounds(line.getBounds(), { maxZoom: 8, padding: [30, 30] });
   }
-  lastLoaded = { kind: 'trace', records: (doc.trace || []).map(p => ({ t: p[0], lat: p[1], lon: p[2], alt: p[3], gs: p[4] })) };
+  const go = cssVar('--go'), fg = cssVar('--fg');
+  legs.forEach(r => {
+    [['dep', go], ['arr', fg]].forEach(([which, colour]) => {
+      const e = legEnd(r, which);
+      L.circleMarker([e.lat, e.lon], {
+        radius: 6, weight: 2, color: colour,
+        // Solid where the field can be named, hollow where it cannot.
+        fillOpacity: e.level === 'unknown' ? 0 : .9,
+      }).bindTooltip(`${which === 'dep' ? 'Departure' : 'Arrival'} · ${e.icao || fmt(e.alt) + ' ft'} · ${clockZ(which === 'dep' ? r[0] : r[1])}`).addTo(layer);
+    });
+  });
 
-  const gaps = doc.gaps || [];
-  const air = gaps.filter(g => g.airborne);
-  const signal = cssVar('--signal');
+  lastLoaded = { kind: 'flights', records: legs.map(r => ({
+    hex, t0: r[0], t1: r[1], max_alt_ft: r[2],
+    dep_icao: r[7] || '', dep_level: LEVELS[r[6]], dep_alt: r[5],
+    arr_icao: r[13] || '', arr_level: LEVELS[r[12]], arr_alt: r[11],
+  })) };
 
-  const cards = gaps.map((g, i) => {
-    const where = `<span class="coord">${g.last_known_lat.toFixed(4)}, ${g.last_known_lon.toFixed(4)}</span>`;
-    if (!g.airborne) {
-      return `<div class="parked gap" style="animation-delay:${i * 28}ms">
-        <div class="head"><span class="dur">${duration(g.duration_s)}</span><span class="tag">Parked</span></div>
-        <div class="where">On the ground at ${where} — landed and stopped transmitting.</div>
-      </div>`;
-    }
-    const rows = g.reachable_envelope_km.map(e =>
-      `<tr><td>${stopLabel(e.assumed_stop_h)}</td><td>${fmt(e.radius_km)} km</td></tr>`).join('');
-    return `<div class="gap" style="animation-delay:${i * 28}ms">
-      <div class="head"><span class="dur">${duration(g.duration_s)}</span><span class="tag">Unobserved</span></div>
-      <div class="where">Left coverage at <span class="coord">${fmt(g.last_known_alt)} ft</span>, over ${where}</div>
-      <div class="env"><div class="cap">Reachable before it reappeared</div><table>${rows}</table></div>
-    </div>`;
-  }).join('');
+  const cards = legs.map((r, i) => `<div class="leg" style="animation-delay:${i * 30}ms">
+      <div class="leg-hd">
+        <span class="leg-t">${clockZ(r[0])} → ${clockZ(r[1])}</span>
+        <span class="leg-d">${duration(r[1] - r[0])} · max ${fmt(r[2])} ft</span>
+      </div>
+      <div class="ends">${endpointCard(legEnd(r, 'dep'), 'dep')}${endpointCard(legEnd(r, 'arr'), 'arr')}</div>
+    </div>`).join('');
 
   $('traceOut').innerHTML = `
     <div class="summary">
-      <div class="id">${doc.reg || doc.hex}${doc.reg && doc.hex ? ` · ${doc.hex.toUpperCase()}` : ''}</div>
-      <div class="sub">${doc.type ? doc.type + ' · ' : ''}${doc.date}</div>
+      <div class="id">${reg || hex.toUpperCase()}</div>
+      <div class="sub">${reg ? hex.toUpperCase() + ' · ' : ''}${type || 'type not on record'} · ${date}</div>
       <div class="stats">
-        <div>Positions<b>${fmt(pts.length)}</b></div>
-        <div>Gaps<b>${gaps.length}</b></div>
-        <div>Airborne<b>${air.length}</b></div>
+        <div>Flights<b>${legs.length}</b></div>
+        <div>Ceiling<b>${row ? fmt(row[7]) : '—'}</b></div>
+        <div>Positions<b>${row ? fmt(row[8]) : '—'}</b></div>
       </div>
     </div>
-    ${ends ? `<div class="ends">${endpointCard(ends.start, 'start')}${endpointCard(ends.end, 'end')}</div>
-      <p class="note">Endpoints are reported only where the track actually begins or
-      ends on the ground. Where it begins or ends in the air, the aircraft simply
-      entered or left receiver range, and where it came from or went next is not
-      in this data.</p>` : ''}
-    ${gaps.length ? `<h2 class="sect">Coverage gaps</h2>${cards}` : '<div class="empty"><p>No coverage gaps over 20 minutes on this day.</p></div>'}
-    ${gaps.length && !air.length ? '<p class="note">Every gap here is on the ground. Nothing left coverage mid-flight.</p>' : ''}
-    <p class="note" style="margin-top:14px">Reachable distances assume 850 km/h cruise. They describe what was possible, not what happened — and never a destination.</p>`;
+    ${path ? '' : `<button class="ghost" id="pathBtn">Draw the full path</button>`}
+    ${legs.length ? `<h2 class="sect">Flights that day</h2>${cards}`
+      : '<div class="empty"><p>Seen that day, but never for long enough to make out a flight.</p></div>'}
+    <p class="note">Departure and arrival are inferred from altitude, climb or
+    descent, and distance to the nearest runway. Aircraft are rarely heard on
+    the ground, so a named airfield is a strong reading of the evidence, not a
+    recorded fact.</p>`;
 
-  // Only airborne gaps get a circle; drawing one around a parked aircraft would
-  // imply a journey that plainly didn't happen.
-  air.forEach(g => {
-    const km = Math.max(...g.reachable_envelope_km.map(e => e.radius_km));
-    // Stroke only: an aircraft with many gaps would otherwise stack a dozen
-    // translucent fills into an unreadable wash.
-    if (km > 0) L.circle([g.last_known_lat, g.last_known_lon],
-      { radius: km * 1000, color: signal, weight: 1, opacity: .5, fill: false, dashArray: '3 5' }).addTo(layer);
-  });
+  const pb = $('pathBtn');
+  if (pb) pb.onclick = async () => {
+    pb.disabled = true;
+    pb.innerHTML = '<span class="spinner"></span>Loading the day\u2019s paths';
+    try {
+      const t = await loadTracks(date);
+      renderAircraft({ hex, reg, type, date, row, legs, path: t.get(hex) || [] });
+    } catch (err) {
+      pb.disabled = false;
+      pb.textContent = 'No paths published for this day';
+    }
+  };
 }
 
 async function resolveHex(input) {
   const s = input.trim().replace(/\s+/g, '');
   if (/^[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase();
-
   let hex;
   try {
     const res = await fetch(`https://hexdb.io/reg-hex?reg=${encodeURIComponent(s.toUpperCase())}`);
     hex = (await res.text()).trim();
   } catch {
-    // fetch throws the same TypeError for an offline host and a blocked
-    // request, so don't pretend to know which.
     throw new Error(`Couldn't reach the registration lookup to identify "${s}". Check your connection, or enter the six-character ICAO hex directly.`);
   }
   if (!/^[0-9a-fA-F]{6}$/.test(hex))
@@ -764,76 +674,56 @@ async function resolveHex(input) {
   return hex.toLowerCase();
 }
 
-const shiftDate = (iso, days) => {
-  const d = new Date(iso + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-};
-
-const authUser = $('authUser'), authPass = $('authPass'), authRemember = $('authRemember');
-try {
-  const saved = JSON.parse(localStorage.getItem('adsb_auth') || 'null');
-  if (saved) { authUser.value = saved.u || ''; authPass.value = saved.p || ''; }
-} catch {}
-
-function authHeader() {
-  const u = authUser.value.trim(), p = authPass.value;
-  if (!u || !p) return null;
-  try {
-    if (authRemember.checked) localStorage.setItem('adsb_auth', JSON.stringify({ u, p }));
-    else localStorage.removeItem('adsb_auth');
-  } catch {}
-  return 'Basic ' + btoa(`${u}:${p}`);
+const flightShardCache = new Map();
+async function loadFlights(date, hex) {
+  const key = `${date}/${hex.slice(0, 2)}`;
+  if (!flightShardCache.has(key)) {
+    const res = await fetch(`data/daily/${date}.flights.${hex.slice(0, 2)}.json.gz`);
+    flightShardCache.set(key, res.ok ? (await readMaybeGzip(res)).flights : {});
+  }
+  return flightShardCache.get(key)[hex] || [];
 }
 
-async function liveLookup(raw, day) {
-  if (!PROXY) throw new Error('Live lookup is not configured for this deployment yet.');
-  const auth = authHeader();
-  if (!auth) { $('authWrap').open = true; throw new Error('Enter the access credentials to look up aircraft.'); }
-  const hex = await resolveHex(raw);
-
-  // Traces are filed per UTC day, so a gap spanning midnight would otherwise be
-  // invisible. Pull the surrounding days and stitch them into one series.
-  const days = [shiftDate(day, -2), shiftDate(day, -1), day];
-  const res = await Promise.all(days.map(d =>
-    fetch(`${PROXY}/trace/${d}/${hex}`, { headers: { Authorization: auth } }).catch(() => null)));
-
-  if (res.some(r => r && r.status === 401)) {
-    $('authWrap').open = true;
-    throw new Error('Those credentials were rejected. Check the username and password.');
-  }
-  if (res.some(r => r && r.status === 503))
-    throw new Error('The lookup service has no credentials configured. Ask the maintainer to set them.');
-
-  const docs = await Promise.all(res.map(r => (r && r.ok) ? r.json().catch(() => null) : null));
-  if (docs.every(d => d === null))
-    throw new Error(`No ADS-B record for ${raw.toUpperCase()} (${hex}) on ${day}. It may not have flown, or flew where no receiver could hear it — those look identical from here.`);
-
-  let merged = [], reg = null, type = null;
-  docs.forEach(doc => {
-    if (!doc) return;
-    reg = reg || doc.r; type = type || doc.t;
-    const base = doc.timestamp || 0;
-    (doc.trace || []).forEach(p => merged.push([base + p[0], p[1], p[2], p[3], p[4]]));
-  });
-  merged.sort((a, b) => a[0] - b[0]);
-
-  const dayEnd = Date.parse(day + 'T23:59:59Z') / 1000;
-  return { reg, hex, type, date: day, trace: merged, gaps: computeGaps(merged).filter(g => g.end_t <= dayEnd) };
+async function identify(hex) {
+  try {
+    const [r, t] = await Promise.all([
+      fetch(`https://hexdb.io/hex-reg?hex=${hex}`).then(x => x.text()).catch(() => ''),
+      fetch(`https://hexdb.io/hex-type?hex=${hex}`).then(x => x.text()).catch(() => ''),
+    ]);
+    const clean = v => { v = (v || '').trim(); return (!v || v === 'n/a') ? '' : v; };
+    return { reg: clean(r), type: clean(t) };
+  } catch { return { reg: '', type: '' }; }
 }
 
 const lookupBtn = $('lookupBtn');
 $('dateInput').value = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
 
+async function openTrace(hex, date) {
+  $('tailInput').value = hex;
+  $('dateInput').value = date;
+  setTab('tabTrace');
+  drawLegend('tabTrace');
+  await doLookup();
+}
+
 async function doLookup() {
   const raw = $('tailInput').value.trim();
+  const date = $('dateInput').value;
   if (!raw) { $('traceOut').innerHTML = '<div class="alert">Enter a tail number or ICAO hex first.</div>'; return; }
   lookupBtn.disabled = true;
   lookupBtn.innerHTML = '<span class="spinner"></span>Searching';
   $('traceOut').innerHTML = '';
   try {
-    const [doc] = await Promise.all([liveLookup(raw, $('dateInput').value), loadAirports()]);
-    renderTrace(doc);
+    const hex = await resolveHex(raw);
+    const [day, , ident] = await Promise.all([loadDay(date), loadAirports(), identify(hex)]);
+    const row = day.aircraft.find(a => a[0] === hex);
+    if (!row) throw new Error(`${raw.toUpperCase()} (${hex}) was not heard by any receiver on ${date}. It may not have flown, or flew where nothing could hear it — those look identical from here.`);
+    const legs = await loadFlights(date, hex);
+    // The day's paths are one big file covering the whole world, so it is only
+    // read if it is already in hand from an area search.
+    const cached = trackCache.get(date);
+    renderAircraft({ hex, reg: ident.reg, type: ident.type, date, row, legs,
+                     path: cached ? cached.get(hex) : null });
   } catch (err) {
     layer.clearLayers();
     $('traceOut').innerHTML = `<div class="alert">${err.message}</div>`;
@@ -960,13 +850,6 @@ $('searchAreaBtn').addEventListener('click', async () => {
     btn.textContent = 'Search this map view';
   }
 });
-
-function openTrace(hex, date) {
-  $('tailInput').value = hex;
-  $('dateInput').value = date;
-  setTab('tabTrace');
-  doLookup();
-}
 
 // Paths come from the nightly index, not the lookup service: one fetch for the
 // whole day rather than one per aircraft, and no credentials needed.

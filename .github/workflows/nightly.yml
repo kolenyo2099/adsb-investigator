@@ -24,7 +24,7 @@ concurrency:
 jobs:
   archive:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -40,16 +40,15 @@ jobs:
             echo "list=$(date -u -d yesterday +%F)" >> "$GITHUB_OUTPUT"
           fi
 
-      # Summary of every aircraft seen that day — the part a browser can't
-      # derive for itself, and what makes area discovery possible. Individual
-      # traces need no archiving: their URLs are derivable from hex and date,
-      # so the app fetches them on demand.
+      # Everything the browser reads: what flew, the flights each aircraft
+      # made, and the paths. A day is 48 half-hour files upstream, so this
+      # pulls around a gigabyte and takes a few minutes.
       - name: Build daily index
         run: python3 scripts/build_index.py ${{ steps.dates.outputs.list }}
 
-      # The per-day index is the archive and is kept forever (~1 MB/day). The
-      # path geometry is a convenience layer three times that size, so old ones
-      # are dropped; rebuilding a specific day is one workflow_dispatch away.
+      # The index and the flight legs are the archive and are kept. Path
+      # geometry is a drawing convenience several times their size, so old
+      # ones are dropped; any day can be rebuilt with workflow_dispatch.
       - name: Prune flight paths older than 90 days
         run: |
           find data/daily -name '*.tracks.json.gz' -mtime +90 -print -delete || true
