@@ -17,17 +17,38 @@
   .envelope { font-size: 12px; opacity: .8; }
   .note { font-size: 12px; opacity: .7; margin-top: 16px; }
   #status { font-size: 13px; opacity: .8; }
+  .tabs { display: flex; margin-bottom: 12px; border: 1px solid #8884; border-radius: 6px; overflow: hidden; }
+  .tabs button { flex: 1; padding: 6px; border: none; background: transparent; cursor: pointer; font-size: 13px; }
+  .tabs button.active { background: #2266dd; color: #fff; }
+  [hidden] { display: none !important; }
+  .scan-row { font-size: 12px; padding: 2px 0; }
 </style>
 </head>
 <body>
 <div id="sidebar">
   <h1>ADS-B Investigator</h1>
-  <select id="aircraftSelect"><option>Loading index…</option></select>
-  <select id="dateSelect" disabled><option>Select aircraft first</option></select>
-  <div id="status"></div>
-  <div id="gaps"></div>
-  <p class="note">Gaps are the finding, not an inferred destination. Envelope
-  radii assume 850 km/h cruise and 0–2h ground stops — see HANDOFF.md §7.</p>
+  <div class="tabs">
+    <button id="tabTrace" class="active">Aircraft trace</button>
+    <button id="tabArea">Area scan</button>
+  </div>
+
+  <div id="paneTrace">
+    <select id="aircraftSelect"><option>Loading index…</option></select>
+    <select id="dateSelect" disabled><option>Select aircraft first</option></select>
+    <div id="status"></div>
+    <div id="gaps"></div>
+    <p class="note">Gaps are the finding, not an inferred destination. Envelope
+    radii assume 850 km/h cruise and 0–2h ground stops — see HANDOFF.md §7.</p>
+  </div>
+
+  <div id="paneArea" hidden>
+    <select id="scanSelect"><option>Loading scans…</option></select>
+    <div id="scanStatus"></div>
+    <div id="scanList"></div>
+    <p class="note">Scans are precomputed offline (scripts/scan_area.py) —
+    the browser can't reach adsb.lol's heatmap files directly (no CORS).
+    Red = US-registered; grey = registration country not yet resolved.</p>
+  </div>
 </div>
 <div id="map"></div>
 
@@ -99,6 +120,57 @@ dateSelect.addEventListener('change', async () => {
       }).addTo(trackLayer);
     }
   });
+});
+
+// --- Area scan tab ---
+const tabTrace = document.getElementById('tabTrace');
+const tabArea = document.getElementById('tabArea');
+const paneTrace = document.getElementById('paneTrace');
+const paneArea = document.getElementById('paneArea');
+const scanSelect = document.getElementById('scanSelect');
+const scanStatus = document.getElementById('scanStatus');
+const scanList = document.getElementById('scanList');
+
+function setTab(name) {
+  const isTrace = name === 'trace';
+  tabTrace.classList.toggle('active', isTrace);
+  tabArea.classList.toggle('active', !isTrace);
+  paneTrace.hidden = !isTrace;
+  paneArea.hidden = isTrace;
+  trackLayer.clearLayers();
+}
+tabTrace.addEventListener('click', () => setTab('trace'));
+tabArea.addEventListener('click', () => { setTab('area'); scanSelect.dispatchEvent(new Event('change')); });
+
+fetch('data/area_scans/index.json').then(r => r.ok ? r.json() : []).then(manifest => {
+  if (!manifest.length) {
+    scanSelect.innerHTML = '<option>No scans yet — run scripts/scan_area.py</option>';
+    return;
+  }
+  scanSelect.innerHTML = manifest.map(m =>
+    `<option value="${m.file}">${m.date} — bbox [${m.bbox.join(', ')}] (${m.count})</option>`
+  ).join('');
+}).catch(() => { scanSelect.innerHTML = '<option>No scans yet</option>'; });
+
+scanSelect.addEventListener('change', async () => {
+  const file = scanSelect.value;
+  if (!file || file.startsWith('No ')) return;
+  scanStatus.textContent = 'Loading scan…';
+  trackLayer.clearLayers();
+  const doc = await fetch(`data/area_scans/${file}`).then(r => r.json());
+  const aircraft = doc.aircraft || [];
+  scanStatus.textContent = `${doc.date} — ${aircraft.length} distinct aircraft in bbox, hours [${doc.hours_scanned.join(',')}]`;
+  scanList.innerHTML = aircraft.map(a =>
+    `<div class="scan-row">${a.hex} — ${a.reg_country} — (${a.lat.toFixed(2)}, ${a.lon.toFixed(2)}) @ ${a.alt_ft} ft, hr${a.first_hour}</div>`
+  ).join('');
+  const b = doc.bbox;
+  L.rectangle([[b.min_lat, b.min_lon], [b.max_lat, b.max_lon]], { color: '#888', weight: 1, fillOpacity: 0.03 }).addTo(trackLayer);
+  aircraft.forEach(a => {
+    L.circleMarker([a.lat, a.lon], {
+      radius: 5, color: a.reg_country === 'US' ? '#d33' : '#888'
+    }).bindTooltip(`${a.hex} (${a.reg_country}) @ ${a.alt_ft}ft`).addTo(trackLayer);
+  });
+  if (aircraft.length) map.fitBounds([[b.min_lat, b.min_lon], [b.max_lat, b.max_lon]]);
 });
 </script>
 </body>
