@@ -1,5 +1,14 @@
 [
   {
+    "date": "2026-09-28",
+    "count": 75143,
+    "flights": 174196,
+    "blocks": 48,
+    "flights_bytes": 5307273,
+    "tracks_bytes": 7201494,
+    "index_bytes": 2323253
+  },
+  {
     "date": "2026-09-27",
     "count": 73147,
     "flights": 167129,
